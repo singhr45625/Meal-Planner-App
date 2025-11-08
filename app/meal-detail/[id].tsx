@@ -21,6 +21,17 @@ import { useFavorites } from '../../hooks/useFavorites';
 import MealService from '../../services/MealService';
 import { MealModel } from '../../types/Meal';
 
+// Helper function to safely format cooking time
+const getFormattedCookingTime = (cookingTime: number): string => {
+  if (cookingTime < 60) {
+    return `${cookingTime}min`;
+  } else {
+    const hours = Math.floor(cookingTime / 60);
+    const minutes = cookingTime % 60;
+    return minutes > 0 ? `${hours}h ${minutes}min` : `${hours}h`;
+  }
+};
+
 export default function MealDetailScreen() {
   const { id } = useLocalSearchParams();
   const [meal, setMeal] = useState<MealModel | null>(null);
@@ -31,10 +42,15 @@ export default function MealDetailScreen() {
     loadMeal();
   }, [id]);
 
-  const loadMeal = () => {
+  const loadMeal = async () => {
     if (typeof id === 'string') {
-      const foundMeal = MealService.getMealById(id);
-      setMeal(foundMeal || null);
+      try {
+        const foundMeal = await MealService.getMealById(id);
+        setMeal(foundMeal || null);
+      } catch (error) {
+        console.error('Error loading meal:', error);
+        setMeal(null);
+      }
     }
     setLoading(false);
   };
@@ -53,6 +69,7 @@ export default function MealDetailScreen() {
   };
 
   const handleAddToPlan = () => {
+    if (!meal) return;
     router.push(`/meal-planning?mealId=${id}`);
   };
 
@@ -73,6 +90,10 @@ export default function MealDetailScreen() {
       </View>
     );
   }
+
+  // Use safe method calls
+  const formattedCookingTime = getFormattedCookingTime(meal.cookingTime);
+  const nutritionPerServing = meal.calculateNutritionPerServing?.() || { calories: Math.round(meal.calories / meal.servings) };
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
@@ -107,7 +128,7 @@ export default function MealDetailScreen() {
           <View style={styles.metaContainer}>
             <View style={styles.metaItem}>
               <Ionicons name="time-outline" size={16} color={Colors.textLight} />
-              <Text style={styles.metaText}>{meal.getFormattedCookingTime()}</Text>
+              <Text style={styles.metaText}>{formattedCookingTime}</Text>
             </View>
             <View style={styles.metaItem}>
               <Ionicons name="flame-outline" size={16} color={Colors.textLight} />
@@ -122,18 +143,20 @@ export default function MealDetailScreen() {
             </View>
           </View>
 
-          <View style={styles.tagsContainer}>
-            {meal.tags.map((tag, index) => (
-              <View key={index} style={styles.tag}>
-                <Text style={styles.tagText}>{tag}</Text>
-              </View>
-            ))}
-          </View>
+          {meal.tags && meal.tags.length > 0 && (
+            <View style={styles.tagsContainer}>
+              {meal.tags.map((tag, index) => (
+                <View key={index} style={styles.tag}>
+                  <Text style={styles.tagText}>{tag}</Text>
+                </View>
+              ))}
+            </View>
+          )}
         </Card>
 
         {/* Nutrition Info */}
         <NutritionInfo
-          calories={meal.calories}
+          calories={nutritionPerServing.calories}
           servings={meal.servings}
           showDetails={false}
         />

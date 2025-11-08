@@ -1,27 +1,173 @@
 import { Ionicons } from '@expo/vector-icons';
-import React from 'react';
-import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useState } from 'react';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View, Alert, Image } from 'react-native';
 import { Colors } from '../../constants/Colors';
 import { Layout } from '../../constants/Layout';
+import { useAuth } from '../../hooks/useAuth';
+import { router } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
 
 export default function ProfileScreen() {
+  const { user, logout, updateUser } = useAuth();
+  const [image, setImage] = useState<string | null>(user?.profileImage || null);
+
+  // Default stats since these aren't in your user schema
   const userStats = {
-    mealsCooked: 47,
-    favoriteRecipes: 12,
-    weeklyCalories: 8500,
-    cookingStreak: 5,
+    mealsCooked: 0,
+    favoriteRecipes: 0,
+    cookingStreak: 0,
   };
+
+  const handleLogout = () => {
+    Alert.alert(
+      'Log Out',
+      'Are you sure you want to log out?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Log Out',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await logout();
+              router.replace('/(auth)/login');
+            } catch (error) {
+              console.error('Logout error:', error);
+              Alert.alert('Error', 'Failed to log out. Please try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const pickImage = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Sorry, we need camera roll permissions to change your profile picture.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        const selectedImage = result.assets[0].uri;
+        setImage(selectedImage);
+        
+        // Here you would upload the image to your backend
+        // For now, we'll just update the local state
+        // await updateUser({ profileImage: selectedImage });
+        
+        Alert.alert('Success', 'Profile picture updated!');
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to update profile picture. Please try again.');
+    }
+  };
+
+  const takePhoto = async () => {
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Sorry, we need camera permissions to take a photo.');
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        const takenImage = result.assets[0].uri;
+        setImage(takenImage);
+        
+        // Here you would upload the image to your backend
+        // await updateUser({ profileImage: takenImage });
+        
+        Alert.alert('Success', 'Profile picture updated!');
+      }
+    } catch (error) {
+      console.error('Error taking photo:', error);
+      Alert.alert('Error', 'Failed to take photo. Please try again.');
+    }
+  };
+
+  const showImagePickerOptions = () => {
+    Alert.alert(
+      'Change Profile Picture',
+      'Choose an option',
+      [
+        {
+          text: 'Take Photo',
+          onPress: takePhoto,
+        },
+        {
+          text: 'Choose from Gallery',
+          onPress: pickImage,
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+      ]
+    );
+  };
+
+  if (!user) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.errorText}>No user data found</Text>
+        <TouchableOpacity 
+          style={styles.loginButton}
+          onPress={() => router.replace('/(auth)/login')}
+        >
+          <Text style={styles.loginButtonText}>Go to Login</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      {/* Header */}
+      {/* Header with Profile Image */}
       <View style={styles.header}>
-        <Image
-          source={{ uri: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150' }}
-          style={styles.avatar}
-        />
-        <Text style={styles.name}>Rohan Singh</Text>
-        <Text style={styles.email}>singhrohan45625@gamil.com</Text>
+        <TouchableOpacity style={styles.avatarContainer} onPress={showImagePickerOptions}>
+          {image ? (
+            <Image source={{ uri: image }} style={styles.avatarImage} />
+          ) : (
+            <View style={styles.avatarPlaceholder}>
+              <Ionicons name="person" size={48} color={Colors.textLight} />
+            </View>
+          )}
+          <View style={styles.cameraIcon}>
+            <Ionicons name="camera" size={16} color="#fff" />
+          </View>
+        </TouchableOpacity>
+        
+        <Text style={styles.name}>{user.name || 'User'}</Text>
+        <Text style={styles.email}>{user.email}</Text>
+        
+        <TouchableOpacity 
+          style={styles.editProfileButton}
+          onPress={() => router.push('/edit-profile')}
+        >
+          <Ionicons name="create-outline" size={16} color={Colors.primary} />
+          <Text style={styles.editProfileText}>Edit Profile</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Stats */}
@@ -40,13 +186,44 @@ export default function ProfileScreen() {
         </View>
       </View>
 
-      {/* Menu Items */}
+      {/* Account Information */}
+      <View style={styles.menuSection}>
+        <Text style={styles.sectionTitle}>Account Information</Text>
+        
+        <View style={styles.infoItem}>
+          <Ionicons name="person-outline" size={20} color={Colors.textLight} />
+          <Text style={styles.infoLabel}>Name:</Text>
+          <Text style={styles.infoValue}>{user.name || 'Not set'}</Text>
+        </View>
+
+        <View style={styles.infoItem}>
+          <Ionicons name="mail-outline" size={20} color={Colors.textLight} />
+          <Text style={styles.infoLabel}>Email:</Text>
+          <Text style={styles.infoValue}>{user.email}</Text>
+        </View>
+
+        {user.preferences?.calorieTarget && (
+          <View style={styles.infoItem}>
+            <Ionicons name="flame-outline" size={20} color={Colors.textLight} />
+            <Text style={styles.infoLabel}>Daily Target:</Text>
+            <Text style={styles.infoValue}>{user.preferences.calorieTarget} calories</Text>
+          </View>
+        )}
+      </View>
+
+      {/* Preferences */}
       <View style={styles.menuSection}>
         <Text style={styles.sectionTitle}>Preferences</Text>
         
         <TouchableOpacity style={styles.menuItem}>
           <Ionicons name="nutrition-outline" size={24} color={Colors.primary} />
           <Text style={styles.menuText}>Dietary Preferences</Text>
+          <Ionicons name="chevron-forward" size={20} color={Colors.textLight} />
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.menuItem}>
+          <Ionicons name="flame-outline" size={24} color={Colors.primary} />
+          <Text style={styles.menuText}>Calorie Target</Text>
           <Ionicons name="chevron-forward" size={20} color={Colors.textLight} />
         </TouchableOpacity>
 
@@ -63,6 +240,7 @@ export default function ProfileScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* Support */}
       <View style={styles.menuSection}>
         <Text style={styles.sectionTitle}>Support</Text>
         
@@ -86,7 +264,7 @@ export default function ProfileScreen() {
       </View>
 
       {/* Logout Button */}
-      <TouchableOpacity style={styles.logoutButton}>
+      <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
         <Ionicons name="log-out-outline" size={24} color={Colors.error} />
         <Text style={styles.logoutText}>Log Out</Text>
       </TouchableOpacity>
@@ -104,21 +282,64 @@ const styles = StyleSheet.create({
     padding: Layout.spacing.xl,
     paddingTop: Layout.spacing.xxl,
   },
-  avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+  avatarContainer: {
+    position: 'relative',
     marginBottom: Layout.spacing.md,
+  },
+  avatarImage: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+  },
+  avatarPlaceholder: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: Colors.surface,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: Colors.border,
+  },
+  cameraIcon: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: Colors.primary,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: Colors.background,
   },
   name: {
     fontSize: 24,
     fontWeight: 'bold',
     color: Colors.text,
     marginBottom: Layout.spacing.xs,
+    textAlign: 'center',
   },
   email: {
     fontSize: 16,
     color: Colors.textLight,
+    textAlign: 'center',
+    marginBottom: Layout.spacing.md,
+  },
+  editProfileButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Layout.spacing.md,
+    paddingVertical: Layout.spacing.sm,
+    borderRadius: Layout.borderRadius.md,
+    backgroundColor: Colors.primary + '15',
+    gap: Layout.spacing.xs,
+  },
+  editProfileText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.primary,
   },
   statsContainer: {
     flexDirection: 'row',
@@ -160,6 +381,26 @@ const styles = StyleSheet.create({
     marginBottom: Layout.spacing.md,
     paddingHorizontal: Layout.spacing.md,
   },
+  infoItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    padding: Layout.spacing.md,
+    borderRadius: Layout.borderRadius.md,
+    marginBottom: Layout.spacing.sm,
+  },
+  infoLabel: {
+    fontSize: 14,
+    color: Colors.textLight,
+    marginLeft: Layout.spacing.md,
+    width: 100,
+  },
+  infoValue: {
+    flex: 1,
+    fontSize: 16,
+    color: Colors.text,
+    fontWeight: '500',
+  },
   menuItem: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -190,5 +431,24 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.error,
     marginLeft: Layout.spacing.sm,
+  },
+  errorText: {
+    fontSize: 16,
+    color: Colors.error,
+    textAlign: 'center',
+    marginTop: Layout.spacing.xl,
+    marginBottom: Layout.spacing.md,
+  },
+  loginButton: {
+    backgroundColor: Colors.primary,
+    padding: Layout.spacing.md,
+    borderRadius: Layout.borderRadius.md,
+    marginHorizontal: Layout.spacing.xl,
+    alignItems: 'center',
+  },
+  loginButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

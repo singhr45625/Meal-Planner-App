@@ -1,190 +1,329 @@
-import { addDays, isSameDay, startOfWeek } from 'date-fns';
-import { MealPlan, MealType, PlannedMeal } from '../constants/Types';
+import ApiService from './ApiService';
+import { MealPlan, PlannedMeal } from '../constants/Types';
+import { format, startOfWeek, addDays } from 'date-fns';
 
 class MealPlanService {
-  private mealPlans: MealPlan[] = [];
-  private nextId = 1;
+  // Store plans locally to handle API delays
+  private localPlans: Map<string, MealPlan> = new Map();
 
-  constructor() {
-    this.initializeSampleData();
-  }
-
-  private initializeSampleData(): void {
-    // Create sample meal plans for the current week
-    const today = new Date();
-    const weekStart = startOfWeek(today, { weekStartsOn: 1 });
+  // Get day plan for specific date with better error handling
+  async getDayPlan(date: Date): Promise<MealPlan | null> {
+    const dateString = this.formatDate(date);
     
-    for (let i = 0; i < 7; i++) {
-      const date = addDays(weekStart, i);
-      const meals: PlannedMeal[] = [];
+    // Check local cache first
+    const localPlan = this.localPlans.get(dateString);
+    if (localPlan) {
+      console.log('Returning local cached plan for:', dateString);
+      return localPlan;
+    }
+
+    try {
+      console.log(`Fetching meal plan for date: ${dateString}`);
       
-      // Add some sample meals for today
-      if (isSameDay(date, today)) {
-        meals.push({
-          id: '1',
-          mealId: '1', // Avocado Toast
-          mealType: 'breakfast',
-          scheduledTime: '08:00',
-          completed: false,
-        });
-        meals.push({
-          id: '2',
-          mealId: '2', // Greek Salad
-          mealType: 'lunch',
-          scheduledTime: '13:00',
-          completed: false,
-        });
+      const response = await ApiService.get(`/day-plans/date/${dateString}`);
+      
+      if (response.success && response.data) {
+        console.log('Meal plan found from API:', response.data);
+        const plan = this.mapToMealPlan(response.data);
+        // Cache the plan
+        this.localPlans.set(dateString, plan);
+        return plan;
       }
-
-      const mealPlan: MealPlan = {
-        id: (this.nextId++).toString(),
-        date,
-        meals,
-        totalCalories: meals.length * 450,
-        completed: false,
-      };
       
-      this.mealPlans.push(mealPlan);
-    }
-  }
-
-  generateWeeklyPlan(startDate: Date = new Date()): MealPlan[] {
-    const weekStart = startOfWeek(startDate, { weekStartsOn: 1 });
-    const weeklyPlan: MealPlan[] = [];
-
-    for (let i = 0; i < 7; i++) {
-      const date = addDays(weekStart, i);
-      const existingPlan = this.getMealPlanByDate(date);
-      
-      if (existingPlan) {
-        weeklyPlan.push(existingPlan);
-      } else {
-        const mealPlan: MealPlan = {
-          id: (this.nextId++).toString(),
-          date,
-          meals: [],
-          totalCalories: 0,
-          completed: false,
-        };
-        weeklyPlan.push(mealPlan);
-        this.mealPlans.push(mealPlan);
+      console.log('No meal plan found in API, creating empty plan');
+      return this.createEmptyMealPlan(date);
+    } catch (error: any) {
+      // Check if it's a "No plan found" error
+      if (error.message?.includes('No plan found') || 
+          error.message?.includes('404') ||
+          error.message?.includes('No plan found for this date')) {
+        console.log('No existing meal plan in API, returning empty plan');
+        return this.createEmptyMealPlan(date);
       }
-    }
-
-    return weeklyPlan;
-  }
-
-  getMealPlanByDate(date: Date): MealPlan | undefined {
-    return this.mealPlans.find(plan => 
-      isSameDay(plan.date, date)
-    );
-  }
-
-  getMealPlanById(id: string): MealPlan | undefined {
-    return this.mealPlans.find(plan => plan.id === id);
-  }
-
-  addMealToPlan(planId: string, mealId: string, mealType: MealType, scheduledTime: string): PlannedMeal {
-    const plan = this.mealPlans.find(p => p.id === planId);
-    if (!plan) {
-      // Create a new plan if it doesn't exist
-      const newPlan: MealPlan = {
-        id: planId,
-        date: new Date(),
-        meals: [],
-        totalCalories: 0,
-        completed: false,
-      };
-      this.mealPlans.push(newPlan);
-      return this.addMealToPlan(planId, mealId, mealType, scheduledTime);
-    }
-
-    const plannedMeal: PlannedMeal = {
-      id: `meal-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      mealId,
-      mealType,
-      scheduledTime,
-      completed: false,
-    };
-
-    plan.meals.push(plannedMeal);
-    this.updatePlanCalories(plan);
-    return plannedMeal;
-  }
-
-  removeMealFromPlan(planId: string, mealId: string): void {
-    const plan = this.mealPlans.find(p => p.id === planId);
-    if (plan) {
-      plan.meals = plan.meals.filter(meal => meal.id !== mealId);
-      this.updatePlanCalories(plan);
+      
+      console.error('Failed to fetch day plan:', error);
+      return this.createEmptyMealPlan(date);
     }
   }
 
-  toggleMealCompletion(planId: string, mealId: string): boolean {
-    const plan = this.mealPlans.find(p => p.id === planId);
-    if (plan) {
-      const meal = plan.meals.find(m => m.id === mealId);
-      if (meal) {
-        meal.completed = !meal.completed;
+  // Create or update day plan with better error handling
+  async saveDayPlan(planData: any): Promise<MealPlan> {
+    try {
+      console.log('Saving day plan:', planData);
+      const response = await ApiService.post('/day-plans', planData);
+      
+      if (response.success && response.data) {
+        console.log('Day plan saved successfully:', response.data);
+        const savedPlan = this.mapToMealPlan(response.data);
         
-        // Check if all meals are completed
-        plan.completed = plan.meals.length > 0 && plan.meals.every(m => m.completed);
-        return meal.completed;
+        // Update local cache
+        const dateString = this.formatDate(savedPlan.date);
+        this.localPlans.set(dateString, savedPlan);
+        
+        return savedPlan;
       }
+      
+      throw new Error(response.message || 'Failed to save day plan');
+    } catch (error: any) {
+      console.error('Failed to save day plan to API:', error);
+      
+      // If saving fails, create a local plan and cache it
+      const fallbackPlan = this.createLocalPlan(planData);
+      const dateString = this.formatDate(fallbackPlan.date);
+      this.localPlans.set(dateString, fallbackPlan);
+      
+      console.log('Using locally cached plan due to API error');
+      return fallbackPlan;
     }
-    return false;
   }
 
-  private updatePlanCalories(plan: MealPlan): void {
-    // Simple calculation - in real app, sum actual meal calories
-    plan.totalCalories = plan.meals.length * 450;
+  // Add meal to plan with immediate UI update
+  async addMealToPlan(
+    date: Date,
+    mealId: string,
+    mealType: string,
+    scheduledTime: string = '12:00'
+  ): Promise<MealPlan> {
+    try {
+      console.log(`Adding meal ${mealId} to ${mealType} on ${this.formatDate(date)}`);
+      
+      // First get existing plan or create empty one
+      let existingPlan = await this.getDayPlan(date);
+      
+      // Create the planned meal object
+      const plannedMeal: PlannedMeal = {
+        id: `${mealType}-${Date.now()}`,
+        mealId: mealId,
+        mealType: mealType as any,
+        scheduledTime: scheduledTime,
+        completed: false
+      };
+
+      // If no existing plan, create one with the new meal
+      if (!existingPlan) {
+        existingPlan = this.createEmptyMealPlan(date);
+      }
+
+      // Add the new meal to the plan (avoid duplicates)
+      const existingMealIndex = existingPlan.meals.findIndex(
+        meal => meal.mealType === mealType
+      );
+
+      if (existingMealIndex >= 0) {
+        // Replace existing meal of same type
+        existingPlan.meals[existingMealIndex] = plannedMeal;
+      } else {
+        // Add new meal
+        existingPlan.meals.push(plannedMeal);
+      }
+
+      // Update total calories (you might want to calculate this based on actual meal data)
+      existingPlan.totalCalories = existingPlan.meals.reduce((total, meal) => {
+        // You would need to fetch meal details to get actual calories
+        return total + 500; // Placeholder
+      }, 0);
+
+      const planData = {
+        date: this.formatDate(date),
+        meals: existingPlan.meals.reduce((acc, meal) => {
+          acc[meal.mealType] = meal.mealId;
+          return acc;
+        }, {} as any),
+        notes: existingPlan.notes || `Added ${mealType} meal`,
+        totalCalories: existingPlan.totalCalories
+      };
+
+      // Save to backend and update local cache
+      const savedPlan = await this.saveDayPlan(planData);
+      
+      // Also update local cache immediately
+      const dateString = this.formatDate(date);
+      this.localPlans.set(dateString, savedPlan);
+
+      return savedPlan;
+    } catch (error) {
+      console.error('Failed to add meal to plan:', error);
+      throw error;
+    }
   }
 
-  getWeeklyPlan(startDate: Date): MealPlan[] {
+  // Remove meal from plan
+  async removeMealFromPlan(date: Date, mealType: string): Promise<MealPlan> {
+    try {
+      console.log(`Removing ${mealType} from plan on ${this.formatDate(date)}`);
+      
+      const existingPlan = await this.getDayPlan(date);
+      if (!existingPlan) {
+        console.log('No plan found to remove meal from');
+        throw new Error('No plan found for this date');
+      }
+
+      // Filter out the meal to remove
+      const updatedMeals = existingPlan.meals.filter(meal => meal.mealType !== mealType);
+
+      const planData = {
+        date: this.formatDate(date),
+        meals: updatedMeals.reduce((acc, meal) => {
+          acc[meal.mealType] = meal.mealId;
+          return acc;
+        }, {} as any),
+        notes: existingPlan.notes,
+        totalCalories: updatedMeals.reduce((total, meal) => total + 500, 0) // Placeholder
+      };
+
+      const savedPlan = await this.saveDayPlan(planData);
+      
+      // Update local cache
+      const dateString = this.formatDate(date);
+      this.localPlans.set(dateString, savedPlan);
+
+      return savedPlan;
+    } catch (error) {
+      console.error('Failed to remove meal from plan:', error);
+      throw error;
+    }
+  }
+
+  // Helper to create a local plan from plan data
+  private createLocalPlan(planData: any): MealPlan {
+    const meals: PlannedMeal[] = [];
+    
+    if (planData.meals) {
+      Object.entries(planData.meals).forEach(([mealType, mealId]: [string, any]) => {
+        if (mealId) {
+          meals.push({
+            id: `${mealType}-${Date.now()}`,
+            mealId: mealId,
+            mealType: mealType as any,
+            scheduledTime: this.getDefaultTimeForMealType(mealType),
+            completed: false,
+          });
+        }
+      });
+    }
+
+    return {
+      id: `local-${Date.now()}`,
+      date: new Date(planData.date),
+      meals,
+      totalCalories: planData.totalCalories || 0,
+      completed: false,
+      notes: planData.notes || '',
+    };
+  }
+
+  // Get meal plan by date (alias for getDayPlan)
+  async getMealPlanByDate(date: Date): Promise<MealPlan | null> {
+    return this.getDayPlan(date);
+  }
+
+  // Get all meal plans (for local storage fallback)
+  getAllMealPlans(): MealPlan[] {
+    return Array.from(this.localPlans.values());
+  }
+
+  // Get week plan
+  async getWeekPlan(startDate: Date): Promise<MealPlan[]> {
+    try {
+      const dateString = this.formatDate(startDate);
+      console.log(`Fetching week plan starting from: ${dateString}`);
+      
+      const response = await ApiService.get(`/day-plans/week/${dateString}`);
+      
+      if (response.success && response.data) {
+        console.log('Week plan data received:', response.data);
+        const weekPlans = response.data.map((dayData: any) => {
+          if (dayData.plan) {
+            const plan = this.mapToMealPlan(dayData.plan);
+            // Cache each plan
+            this.localPlans.set(this.formatDate(plan.date), plan);
+            return plan;
+          } else {
+            return this.createEmptyMealPlan(new Date(dayData.date));
+          }
+        });
+        return weekPlans;
+      }
+      
+      return this.generateEmptyWeekPlan(startDate);
+    } catch (error) {
+      console.error('Failed to fetch week plan, using fallback:', error);
+      return this.generateEmptyWeekPlan(startDate);
+    }
+  }
+
+  // Clear local cache (useful for logout)
+  clearLocalCache(): void {
+    this.localPlans.clear();
+  }
+
+  // Helper to format date as YYYY-MM-DD
+  private formatDate(date: Date): string {
+    return date.toISOString().split('T')[0];
+  }
+
+  // Map backend day plan to frontend MealPlan
+  private mapToMealPlan(data: any): MealPlan {
+    const meals: PlannedMeal[] = [];
+    
+    if (data.meals) {
+      Object.entries(data.meals).forEach(([mealType, mealData]: [string, any]) => {
+        if (mealData && mealData._id) {
+          meals.push({
+            id: `${mealType}-${data._id || data.id}`,
+            mealId: mealData._id,
+            mealType: mealType as any,
+            scheduledTime: this.getDefaultTimeForMealType(mealType),
+            completed: false,
+          });
+        }
+      });
+    }
+
+    return {
+      id: data._id || data.id || `plan-${Date.now()}`,
+      date: new Date(data.date),
+      meals,
+      totalCalories: data.totalCalories || 0,
+      completed: data.completed || false,
+      notes: data.notes || '',
+    };
+  }
+
+  // Helper method to create an empty meal plan for a date
+  private createEmptyMealPlan(date: Date): MealPlan {
+    return {
+      id: `temp-${date.getTime()}`,
+      date,
+      meals: [],
+      totalCalories: 0,
+      completed: false,
+      notes: '',
+    };
+  }
+
+  // Generate empty week plan
+  private generateEmptyWeekPlan(startDate: Date): MealPlan[] {
     const weekStart = startOfWeek(startDate, { weekStartsOn: 1 });
-    const weeklyPlan: MealPlan[] = [];
+    const weekPlan: MealPlan[] = [];
 
     for (let i = 0; i < 7; i++) {
       const date = addDays(weekStart, i);
-      const existingPlan = this.getMealPlanByDate(date);
-      
-      if (existingPlan) {
-        weeklyPlan.push(existingPlan);
-      } else {
-        weeklyPlan.push({
-          id: `temp-${i}`,
-          date,
-          meals: [],
-          totalCalories: 0,
-          completed: false,
-        });
-      }
+      weekPlan.push(this.createEmptyMealPlan(date));
     }
 
-    return weeklyPlan;
+    return weekPlan;
   }
 
-  getAllMealPlans(): MealPlan[] {
-    return this.mealPlans;
-  }
-
-  // Helper to ensure we always have a plan for today
-  getOrCreateTodayPlan(): MealPlan {
-    const today = new Date();
-    let todayPlan = this.getMealPlanByDate(today);
-    
-    if (!todayPlan) {
-      todayPlan = {
-        id: `today-${Date.now()}`,
-        date: today,
-        meals: [],
-        totalCalories: 0,
-        completed: false,
-      };
-      this.mealPlans.push(todayPlan);
-    }
-    
-    return todayPlan;
+  // Get default time for meal type
+  private getDefaultTimeForMealType(mealType: string): string {
+    const times: { [key: string]: string } = {
+      breakfast: '08:00',
+      lunch: '12:00',
+      dinner: '18:00',
+      snack: '15:00'
+    };
+    return times[mealType] || '12:00';
   }
 }
 

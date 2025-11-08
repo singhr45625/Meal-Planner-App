@@ -21,20 +21,23 @@ export const Layout = {
   
   // Border Radius
   borderRadius: {
-    sm: 8,
-    md: 12,
-    lg: 16,
-    xl: 24,
-    round: 9999,
+    sm: 4,
+    md: 8,
+    lg: 12,
+    xl: 16,
+    round: 24,
   },
   
   // Typography
   typography: {
-    h1: { fontSize: 32, lineHeight: 40, fontWeight: 'bold' as const },
-    h2: { fontSize: 24, lineHeight: 32, fontWeight: 'bold' as const },
-    h3: { fontSize: 20, lineHeight: 28, fontWeight: '600' as const },
-    body: { fontSize: 16, lineHeight: 24, fontWeight: 'normal' as const },
-    caption: { fontSize: 14, lineHeight: 20, fontWeight: 'normal' as const },
-    small: { fontSize: 12, lineHeight: 16, fontWeight: 'normal' as const },
+    h1: 32,
+    h2: 24,
+    h3: 20,
+    h4: 18,
+    body: 16,
+    caption: 14,
+    small: 12,
   },
 };
+
+export default Layout;

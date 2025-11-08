@@ -15,28 +15,29 @@ import {
 import { Colors } from '../constants/Colors';
 import { Layout } from '../constants/Layout';
 import { useMeals } from '../hooks/useMeals';
-import MealPlanService from '../services/MealPlanService';
-import MealService from '../services/MealService';
+import { useMealPlan } from '../hooks/useMealPlan';
 
 type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack';
-
-interface PlannedMeal {
-  id: string;
-  mealId: string;
-  mealType: MealType;
-  scheduledTime: string;
-  completed: boolean;
-}
 
 export default function MealPlanningScreen() {
   const params = useLocalSearchParams();
   const { meals, toggleFavorite, searchMeals } = useMeals();
-  const [selectedDate, setSelectedDate] = useState(new Date());
+  const { 
+    weeklyPlan, 
+    selectedDate,
+    setSelectedDate,
+    addMealToPlan, 
+    removeMealFromPlan,
+    loading: planLoading,
+    refresh
+  } = useMealPlan();
+  
   const [selectedMealType, setSelectedMealType] = useState<MealType>('breakfast');
   const [scheduledTime, setScheduledTime] = useState('08:00');
   const [searchQuery, setSearchQuery] = useState('');
   const [showMealModal, setShowMealModal] = useState(false);
-  const [plannedMeals, setPlannedMeals] = useState<PlannedMeal[]>([]);
+  const [localLoading, setLocalLoading] = useState(false);
+  const [lastAddedMeal, setLastAddedMeal] = useState<string | null>(null);
 
   // Memoize stable values
   const mealTypes = useMemo(() => [
@@ -52,22 +53,44 @@ export default function MealPlanningScreen() {
     '20:00', '21:00'
   ], []);
 
-  // Stable date string for dependencies
-  const selectedDateString = useMemo(() => 
-    format(selectedDate, 'yyyy-MM-dd'), [selectedDate]
-  );
+  // Get today's planned meals from weeklyPlan
+  const plannedMeals = useMemo(() => {
+    const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
+    const todayPlan = weeklyPlan.find(plan => {
+      const planDateStr = format(plan.date, 'yyyy-MM-dd');
+      return planDateStr === selectedDateStr;
+    });
+    
+    const meals = todayPlan?.meals || [];
+    console.log('📅 Planned meals for', selectedDateStr, ':', meals.length, 'meals');
+    return meals;
+  }, [weeklyPlan, selectedDate]);
 
-  // Load planned meals for selected date - FIXED DEPENDENCIES
-  const loadPlannedMeals = useCallback(() => {
-    const plan = MealPlanService.getMealPlanByDate(selectedDate);
-    if (plan) {
-      setPlannedMeals(plan.meals);
-    } else {
-      setPlannedMeals([]);
+  // Debug effect to track state changes
+  useEffect(() => {
+    console.log('=== MEAL PLANNING DEBUG ===');
+    console.log('Selected Date:', format(selectedDate, 'yyyy-MM-dd'));
+    console.log('Weekly Plan Length:', weeklyPlan.length);
+    console.log('Planned Meals Length:', plannedMeals.length);
+    plannedMeals.forEach((meal, index) => {
+      console.log(`Meal ${index + 1}:`, meal.mealType, meal.mealId, meal.scheduledTime);
+    });
+    console.log('=== END DEBUG ===');
+  }, [weeklyPlan, plannedMeals, selectedDate]);
+
+  // Track when a meal was just added
+  useEffect(() => {
+    if (lastAddedMeal) {
+      console.log('🎯 Last added meal tracking:', lastAddedMeal);
+      // Clear after 3 seconds
+      const timer = setTimeout(() => {
+        setLastAddedMeal(null);
+      }, 3000);
+      return () => clearTimeout(timer);
     }
-  }, [selectedDate]); // Only depends on selectedDate
+  }, [lastAddedMeal]);
 
-  // Initialize from URL params - RUNS ONLY ONCE
+  // Initialize from URL params
   useEffect(() => {
     if (params.date) {
       try {
@@ -81,14 +104,9 @@ export default function MealPlanningScreen() {
     if (params.mealId) {
       setShowMealModal(true);
     }
-  }, []); // Empty dependency array - runs once on mount
+  }, [params.date, params.mealId, setSelectedDate]);
 
-  // Load planned meals when date changes
-  useEffect(() => {
-    loadPlannedMeals();
-  }, [loadPlannedMeals]); // Only depends on loadPlannedMeals function
-
-  // Filter meals based on search - FIXED: use useMemo instead of useEffect
+  // Filter meals based on search
   const filteredMeals = useMemo(() => {
     if (searchQuery.trim()) {
       return meals.filter(meal =>
@@ -98,43 +116,57 @@ export default function MealPlanningScreen() {
       );
     }
     return meals;
-  }, [searchQuery, meals]); // Proper dependencies
+  }, [searchQuery, meals]);
 
-  const handleAddMeal = useCallback((meal: any) => {
+  const handleAddMeal = useCallback(async (meal: any) => {
     try {
-      let plan = MealPlanService.getMealPlanByDate(selectedDate);
+      setLocalLoading(true);
+      setLastAddedMeal(`${meal.id}-${selectedMealType}-${Date.now()}`);
       
-      if (!plan) {
-        // Create new plan for this date
-        plan = {
-          id: `plan-${selectedDate.getTime()}`,
-          date: selectedDate,
-          meals: [],
-          totalCalories: 0,
-          completed: false,
-        };
-        MealPlanService.getAllMealPlans().push(plan);
-      }
+      console.log('🚀 Starting to add meal:', {
+        date: format(selectedDate, 'yyyy-MM-dd'),
+        mealId: meal.id,
+        mealType: selectedMealType,
+        scheduledTime: scheduledTime,
+        mealTitle: meal.title
+      });
 
-      MealPlanService.addMealToPlan(
-        plan.id,
+      const result = await addMealToPlan(
+        selectedDate,
         meal.id,
         selectedMealType,
         scheduledTime
       );
 
-      setShowMealModal(false);
-      setSearchQuery('');
-      loadPlannedMeals();
-      
-      Alert.alert('Success', `${meal.title} added to ${selectedMealType} on ${format(selectedDate, 'MMM dd')}`);
+      if (result.success) {
+        console.log('✅ Meal added successfully, closing modal');
+        setShowMealModal(false);
+        setSearchQuery('');
+        
+        // Show success but don't reload data
+        Alert.alert('Success', `${meal.title} added to ${selectedMealType} on ${format(selectedDate, 'MMM dd')}`);
+        
+        // Verify the meal is still there after a delay
+        setTimeout(() => {
+          console.log('🔍 Verifying meal persistence...');
+          const currentPlannedMeals = plannedMeals;
+          const addedMealExists = currentPlannedMeals.some(
+            m => m.mealId === meal.id && m.mealType === selectedMealType
+          );
+          console.log('✅ Meal still exists in state:', addedMealExists);
+        }, 1000);
+      } else {
+        Alert.alert('Error', result.error || 'Failed to add meal to plan');
+      }
     } catch (error) {
-      console.error('Error adding meal:', error);
-      Alert.alert('Error', 'Failed to add meal to plan');
+      console.error('❌ Error adding meal:', error);
+      Alert.alert('Error', 'Failed to add meal to plan. Please try again.');
+    } finally {
+      setLocalLoading(false);
     }
-  }, [selectedDate, selectedMealType, scheduledTime, loadPlannedMeals]);
+  }, [selectedDate, selectedMealType, scheduledTime, addMealToPlan, plannedMeals]);
 
-  const handleRemoveMeal = useCallback((mealId: string) => {
+  const handleRemoveMeal = useCallback(async (mealId: string) => {
     Alert.alert(
       'Remove Meal',
       'Are you sure you want to remove this meal from your plan?',
@@ -143,20 +175,33 @@ export default function MealPlanningScreen() {
         {
           text: 'Remove',
           style: 'destructive',
-          onPress: () => {
-            const plan = MealPlanService.getMealPlanByDate(selectedDate);
-            if (plan) {
-              MealPlanService.removeMealFromPlan(plan.id, mealId);
-              loadPlannedMeals();
+          onPress: async () => {
+            try {
+              // Find the meal type to remove
+              const mealToRemove = plannedMeals.find(meal => meal.id === mealId);
+              if (mealToRemove) {
+                const result = await removeMealFromPlan(selectedDate, mealToRemove.mealType);
+                
+                if (result.success) {
+                  console.log('✅ Meal removed successfully');
+                } else {
+                  Alert.alert('Error', result.error || 'Failed to remove meal');
+                }
+              }
+            } catch (error) {
+              console.error('❌ Error removing meal:', error);
+              Alert.alert('Error', 'Failed to remove meal');
             }
           }
         }
       ]
     );
-  }, [selectedDate, loadPlannedMeals]);
+  }, [selectedDate, plannedMeals, removeMealFromPlan]);
 
   const getMealsByType = useCallback((mealType: MealType) => {
-    return plannedMeals.filter(meal => meal.mealType === mealType);
+    const meals = plannedMeals.filter(meal => meal.mealType === mealType);
+    console.log(`📊 Meals for ${mealType}:`, meals.length);
+    return meals;
   }, [plannedMeals]);
 
   const getMealTypeColor = useCallback((mealType: MealType) => {
@@ -172,15 +217,28 @@ export default function MealPlanningScreen() {
   const navigateToDate = useCallback((days: number) => {
     const newDate = addDays(selectedDate, days);
     setSelectedDate(newDate);
-  }, [selectedDate]);
+  }, [selectedDate, setSelectedDate]);
 
   const getMealDetails = useCallback((mealId: string) => {
-    return MealService.getMealById(mealId);
+    return meals.find(meal => meal.id === mealId);
+  }, [meals]);
+
+  // Helper function to safely format cooking time
+  const getFormattedCookingTime = useCallback((cookingTime: number): string => {
+    if (cookingTime < 60) {
+      return `${cookingTime}min`;
+    } else {
+      const hours = Math.floor(cookingTime / 60);
+      const minutes = cookingTime % 60;
+      return minutes > 0 ? `${hours}h ${minutes}min` : `${hours}h`;
+    }
   }, []);
 
   // Render function for meal type sections
   const renderMealTypeSection = useCallback((mealType: typeof mealTypes[0]) => {
     const typeMeals = getMealsByType(mealType.type);
+    
+    console.log(`🎨 Rendering ${mealType.type} section with ${typeMeals.length} meals`);
     
     return (
       <View key={mealType.type} style={styles.mealTypeSection}>
@@ -209,7 +267,10 @@ export default function MealPlanningScreen() {
           <View style={styles.plannedMealsList}>
             {typeMeals.map(plannedMeal => {
               const mealDetails = getMealDetails(plannedMeal.mealId);
-              if (!mealDetails) return null;
+              if (!mealDetails) {
+                console.log('❌ Meal details not found for:', plannedMeal.mealId);
+                return null;
+              }
 
               return (
                 <View key={plannedMeal.id} style={styles.plannedMealItem}>
@@ -217,7 +278,7 @@ export default function MealPlanningScreen() {
                     <Text style={styles.mealTime}>{plannedMeal.scheduledTime}</Text>
                     <Text style={styles.mealName}>{mealDetails.title}</Text>
                     <Text style={styles.mealMeta}>
-                      {mealDetails.getFormattedCookingTime()} • {mealDetails.calories} cal
+                      {getFormattedCookingTime(mealDetails.cookingTime)} • {mealDetails.calories} cal
                     </Text>
                   </View>
                   <TouchableOpacity 
@@ -242,7 +303,18 @@ export default function MealPlanningScreen() {
         )}
       </View>
     );
-  }, [getMealsByType, getMealTypeColor, getMealDetails, handleRemoveMeal]);
+  }, [getMealsByType, getMealTypeColor, getMealDetails, handleRemoveMeal, getFormattedCookingTime]);
+
+  const loading = planLoading || localLoading;
+
+  if (loading && weeklyPlan.length === 0) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Ionicons name="restaurant-outline" size={48} color={Colors.primary} />
+        <Text style={styles.loadingText}>Loading meal plan...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -255,7 +327,15 @@ export default function MealPlanningScreen() {
           <Ionicons name="chevron-back" size={24} color={Colors.text} />
         </TouchableOpacity>
         <Text style={styles.title}>Meal Planning</Text>
-        <View style={styles.placeholder} />
+        <TouchableOpacity 
+          style={styles.refreshButton}
+          onPress={() => {
+            console.log('🔄 Manual refresh triggered');
+            refresh();
+          }}
+        >
+          <Ionicons name="refresh" size={24} color={Colors.primary} />
+        </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
@@ -288,13 +368,24 @@ export default function MealPlanningScreen() {
           </View>
         </View>
 
+        {/* Debug Info */}
+        {lastAddedMeal && (
+          <View style={styles.debugInfo}>
+            <Text style={styles.debugText}>Last added: {lastAddedMeal}</Text>
+            <Text style={styles.debugText}>Total meals: {plannedMeals.length}</Text>
+          </View>
+        )}
+
         {/* Add Meal Button */}
         <TouchableOpacity 
           style={styles.addMealButton}
           onPress={() => setShowMealModal(true)}
+          disabled={loading}
         >
           <Ionicons name="add-circle" size={24} color={Colors.primary} />
-          <Text style={styles.addMealButtonText}>Add Meal to Plan</Text>
+          <Text style={styles.addMealButtonText}>
+            {loading ? 'Adding...' : 'Add Meal to Plan'}
+          </Text>
         </TouchableOpacity>
 
         {/* Planned Meals by Type */}
@@ -309,14 +400,15 @@ export default function MealPlanningScreen() {
         visible={showMealModal}
         animationType="slide"
         presentationStyle="pageSheet"
-        onRequestClose={() => setShowMealModal(false)}
+        onRequestClose={() => !loading && setShowMealModal(false)}
       >
         <View style={styles.modalContainer}>
           {/* Modal Header */}
           <View style={styles.modalHeader}>
             <TouchableOpacity 
-              onPress={() => setShowMealModal(false)}
+              onPress={() => !loading && setShowMealModal(false)}
               style={styles.modalCloseButton}
+              disabled={loading}
             >
               <Ionicons name="close" size={24} color={Colors.text} />
             </TouchableOpacity>
@@ -337,6 +429,7 @@ export default function MealPlanningScreen() {
                       selectedMealType === type.type && styles.mealTypeOptionSelected
                     ]}
                     onPress={() => setSelectedMealType(type.type)}
+                    disabled={loading}
                   >
                     <Ionicons 
                       name={type.icon as any} 
@@ -367,6 +460,7 @@ export default function MealPlanningScreen() {
                         scheduledTime === time && styles.timeSlotSelected
                       ]}
                       onPress={() => setScheduledTime(time)}
+                      disabled={loading}
                     >
                       <Text style={[
                         styles.timeSlotText,
@@ -393,6 +487,7 @@ export default function MealPlanningScreen() {
                   value={searchQuery}
                   onChangeText={setSearchQuery}
                   placeholderTextColor={Colors.textLight}
+                  editable={!loading}
                 />
               </View>
 
@@ -404,6 +499,7 @@ export default function MealPlanningScreen() {
                       key={meal.id}
                       style={styles.mealOption}
                       onPress={() => handleAddMeal(meal)}
+                      disabled={loading}
                     >
                       <View style={styles.mealOptionContent}>
                         <Text style={styles.mealOptionTitle}>{meal.title}</Text>
@@ -412,11 +508,15 @@ export default function MealPlanningScreen() {
                         </Text>
                         <View style={styles.mealOptionMeta}>
                           <Text style={styles.mealOptionMetaText}>
-                            {meal.getFormattedCookingTime()} • {meal.calories} cal
+                            {getFormattedCookingTime(meal.cookingTime)} • {meal.calories} cal
                           </Text>
                         </View>
                       </View>
-                      <Ionicons name="add-circle" size={24} color={Colors.primary} />
+                      {loading ? (
+                        <Ionicons name="time-outline" size={24} color={Colors.textLight} />
+                      ) : (
+                        <Ionicons name="add-circle" size={24} color={Colors.primary} />
+                      )}
                     </TouchableOpacity>
                   ))
                 ) : (
@@ -442,6 +542,18 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.background,
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: Colors.background,
+    gap: Layout.spacing.md,
+  },
+  loadingText: {
+    fontSize: 16,
+    color: Colors.textLight,
+    textAlign: 'center',
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -460,6 +572,9 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: Colors.text,
+  },
+  refreshButton: {
+    padding: Layout.spacing.xs,
   },
   placeholder: {
     width: 40,
@@ -502,6 +617,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.textLight,
     marginTop: 2,
+  },
+  debugInfo: {
+    margin: Layout.spacing.lg,
+    marginTop: 0,
+    padding: Layout.spacing.md,
+    backgroundColor: Colors.warning + '20',
+    borderRadius: Layout.borderRadius.md,
+    borderLeftWidth: 4,
+    borderLeftColor: Colors.warning,
+  },
+  debugText: {
+    fontSize: 12,
+    color: Colors.warning,
+    fontFamily: 'monospace',
   },
   addMealButton: {
     flexDirection: 'row',

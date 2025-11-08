@@ -37,7 +37,7 @@ export class MealModel {
   calculateNutritionPerServing() {
     return {
       calories: Math.round(this.calories / this.servings),
-      protein: 0, // You can add more nutrition fields
+      protein: 0,
       carbs: 0,
       fat: 0,
     };

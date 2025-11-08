@@ -16,58 +16,59 @@ import { MealPlanDay } from '../../components/MealPlanDay';
 import { Colors } from '../../constants/Colors';
 import { Layout } from '../../constants/Layout';
 import { useMeals } from '../../hooks/useMeals';
+import { useMealPlan } from '../../hooks/useMealPlan';
+import { mealService } from '../../services/MealService';
 import MealPlanService from '../../services/MealPlanService';
-import MealService from '../../services/MealService';
 
 const { width: screenWidth } = Dimensions.get('window');
 
 export default function MealPlanScreen() {
-  const { meals, toggleFavorite } = useMeals();
-  const [weeklyPlan, setWeeklyPlan] = useState<any[]>([]);
+  const { meals, refreshMeals } = useMeals();
+  const { 
+    weeklyPlan, 
+    selectedDate, 
+    loading: planLoading,
+    addMealToPlan,
+    removeMealFromPlan,
+    refresh: refreshMealPlan 
+  } = useMealPlan();
+  
   const [todayMeals, setTodayMeals] = useState<any[]>([]);
-  const [selectedDate, setSelectedDate] = useState(new Date());
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    loadTodayMeals();
+  }, [weeklyPlan, meals]);
 
-  const loadData = () => {
-    setLoading(true);
+  const loadData = async () => {
+    setRefreshing(true);
     try {
-      loadWeeklyPlan();
+      await Promise.all([
+        refreshMeals(),
+        refreshMealPlan()
+      ]);
       loadTodayMeals();
     } catch (error) {
       console.error('Error loading meal plan data:', error);
     } finally {
-      setLoading(false);
+      setRefreshing(false);
     }
   };
 
   const onRefresh = () => {
-    setRefreshing(true);
     loadData();
-    setTimeout(() => setRefreshing(false), 1000);
-  };
-
-  const loadWeeklyPlan = () => {
-    try {
-      const plan = MealPlanService.getWeeklyPlan(selectedDate);
-      setWeeklyPlan(plan);
-    } catch (error) {
-      console.error('Error loading weekly plan:', error);
-      setWeeklyPlan([]);
-    }
   };
 
   const loadTodayMeals = () => {
     try {
-      const todayPlan = MealPlanService.getOrCreateTodayPlan();
+      const today = new Date();
+      const todayPlan = weeklyPlan.find(plan => 
+        format(plan.date, 'yyyy-MM-dd') === format(today, 'yyyy-MM-dd')
+      );
       
       if (todayPlan && todayPlan.meals.length > 0) {
         const todayMealDetails = todayPlan.meals.map(plannedMeal => {
-          const meal = MealService.getMealById(plannedMeal.mealId);
+          const meal = meals.find(m => m.id === plannedMeal.mealId);
           return {
             ...plannedMeal,
             mealDetails: meal
@@ -92,7 +93,7 @@ export default function MealPlanScreen() {
     router.push('/meal-planning');
   };
 
-  const handleRemoveMeal = (mealId: string) => {
+  const handleRemoveMeal = async (mealId: string) => {
     Alert.alert(
       'Remove Meal',
       'Are you sure you want to remove this meal from your plan?',
@@ -101,12 +102,20 @@ export default function MealPlanScreen() {
         {
           text: 'Remove',
           style: 'destructive',
-          onPress: () => {
+          onPress: async () => {
             try {
-              const todayPlan = MealPlanService.getOrCreateTodayPlan();
-              MealPlanService.removeMealFromPlan(todayPlan.id, mealId);
-              loadTodayMeals();
-              loadWeeklyPlan();
+              const today = new Date();
+              const todayPlan = weeklyPlan.find(plan => 
+                format(plan.date, 'yyyy-MM-dd') === format(today, 'yyyy-MM-dd')
+              );
+              
+              if (todayPlan) {
+                const mealToRemove = todayPlan.meals.find(meal => meal.id === mealId);
+                if (mealToRemove) {
+                  await removeMealFromPlan(today, mealToRemove.mealType);
+                  await loadData();
+                }
+              }
             } catch (error) {
               console.error('Error removing meal:', error);
               Alert.alert('Error', 'Failed to remove meal');
@@ -119,36 +128,30 @@ export default function MealPlanScreen() {
 
   const handleToggleMealCompletion = (mealId: string) => {
     try {
-      const todayPlan = MealPlanService.getOrCreateTodayPlan();
-      MealPlanService.toggleMealCompletion(todayPlan.id, mealId);
-      loadTodayMeals();
-      loadWeeklyPlan();
+      // This is now client-side only since backend doesn't track completion
+      setTodayMeals(prevMeals => 
+        prevMeals.map(meal => 
+          meal.id === mealId 
+            ? { ...meal, completed: !meal.completed }
+            : meal
+        )
+      );
     } catch (error) {
       console.error('Error toggling meal completion:', error);
     }
   };
 
-  const handleQuickAddMeal = (meal: any) => {
+  const handleQuickAddMeal = async (meal: any) => {
     try {
-      const todayPlan = MealPlanService.getOrCreateTodayPlan();
-      
+      const today = new Date();
       const currentHour = new Date().getHours();
-      let mealType: any = 'lunch';
+      let mealType: string = 'lunch';
       if (currentHour < 11) mealType = 'breakfast';
       else if (currentHour < 16) mealType = 'lunch';
       else mealType = 'dinner';
-      
-      const scheduledTime = `${currentHour.toString().padStart(2, '0')}:00`;
-      
-      MealPlanService.addMealToPlan(
-        todayPlan.id, 
-        meal.id, 
-        mealType, 
-        scheduledTime
-      );
-      
-      loadTodayMeals();
-      loadWeeklyPlan();
+
+      await addMealToPlan(today, meal.id, mealType);
+      await loadData();
       
       Alert.alert('Success', `${meal.title} added to today's plan!`);
     } catch (error) {
@@ -177,7 +180,7 @@ export default function MealPlanScreen() {
     return colors[mealType] || Colors.primary;
   };
 
-  if (loading) {
+  if (planLoading) {
     return (
       <View style={styles.loadingContainer}>
         <Ionicons name="restaurant-outline" size={48} color={Colors.primary} />
@@ -458,7 +461,7 @@ const styles = StyleSheet.create({
   },
   todaySection: {
     padding: Layout.spacing.lg,
-    minHeight: 500, // Ensure minimum height for proper scrolling
+    minHeight: 500,
   },
   sectionHeader: {
     flexDirection: 'row',

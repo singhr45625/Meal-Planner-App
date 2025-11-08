@@ -6,7 +6,7 @@ export interface MealPlan {
   meals: PlannedMeal[];
   totalCalories: number;
   completed: boolean;
-  notes?: string;
+  notes?: string; // This makes it truly optional
 }
 
 export interface PlannedMeal {

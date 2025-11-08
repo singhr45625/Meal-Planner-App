@@ -1,3 +1,5 @@
+import { UserPreferences, UserStats } from '../constants/Types';
+
 export interface User {
   id: string;
   name: string;
@@ -5,41 +7,18 @@ export interface User {
   profileImage?: string;
   preferences: UserPreferences;
   stats: UserStats;
+  dailyCalorieTarget?: number;
+  dietaryPreferences?: string[];
+  mealsCooked?: number;
+  cookingStreak?: number;
+  favoriteRecipes?: string[];
+  createdAt?: string;
 }
 
-export interface UserPreferences {
-  dietaryRestrictions: string[];
-  calorieTarget: number;
-  preferredCuisines: string[];
-  cookingTimeLimit: number;
-  servings: number;
-  mealTypes: {
-    breakfast: boolean;
-    lunch: boolean;
-    dinner: boolean;
-    snack: boolean;
-  };
-  notifications: {
-    mealReminders: boolean;
-    groceryReminders: boolean;
-    weeklyPlanning: boolean;
-  };
-}
-
-export interface UserStats {
-  totalMealsCooked: number;
-  favoriteRecipes: number;
-  weeklyCalories: number;
-  cookingStreak: number;
-  goals: UserGoal[];
-}
-
-export interface UserGoal {
-  id: string;
-  title: string;
-  target: number;
-  current: number;
-  unit: string;
-  deadline?: Date;
-  completed: boolean;
+export interface AuthResponse {
+  success: boolean;
+  token?: string;
+  user?: User;
+  error?: string;
+  message?: string;
 }

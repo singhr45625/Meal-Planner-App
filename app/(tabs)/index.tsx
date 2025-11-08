@@ -2,14 +2,18 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { MealCard } from '../../components/MealCard';
+import MealCard from '../../components/MealCard';
 import { Colors } from '../../constants/Colors';
-import { useMeals } from '../../constants/hooks/useMeals';
+import { useMeals } from '../../hooks/useMeals';
 
 export default function HomeScreen() {
   const { meals, toggleFavorite } = useMeals();
   const featuredMeals = meals.slice(0, 3);
   const favoriteMeals = meals.filter(meal => meal.isFavorite).slice(0, 3);
+
+  const handleMealPress = (meal: any) => {
+    router.push(`/meal-detail/${meal.id}`);
+  };
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
@@ -39,7 +43,7 @@ export default function HomeScreen() {
         
         <TouchableOpacity 
           style={styles.actionButton}
-          onPress={() => router.push('/(tabs)/meal-plan')}
+          onPress={() => router.push('/meal-planning')}
         >
           <Ionicons name="add-circle" size={24} color={Colors.primary} />
           <Text style={styles.actionText}>Add Meal</Text>
@@ -58,8 +62,8 @@ export default function HomeScreen() {
           <MealCard
             key={meal.id}
             meal={meal}
-            onPress={(meal) => router.push(`/meal-detail/${meal.id}`)}
-            onFavorite={toggleFavorite}
+            onPress={handleMealPress}
+            onToggleFavorite={toggleFavorite}
           />
         ))}
       </View>
@@ -74,8 +78,8 @@ export default function HomeScreen() {
             <MealCard
               key={meal.id}
               meal={meal}
-              onPress={(meal) => router.push(`/meal-detail/${meal.id}`)}
-              onFavorite={toggleFavorite}
+              onPress={handleMealPress}
+              onToggleFavorite={toggleFavorite}
             />
           ))}
         </View>
