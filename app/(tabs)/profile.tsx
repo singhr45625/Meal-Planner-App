@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useState } from 'react';
+import React, { useState , useEffect} from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View, Alert, Image } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { Colors } from '../../constants/Colors';
 import { Layout } from '../../constants/Layout';
 import { useAuth } from '../../hooks/useAuth';
@@ -8,15 +9,59 @@ import { router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 
 export default function ProfileScreen() {
-  const { user, logout, updateUser } = useAuth();
-  const [image, setImage] = useState<string | null>(user?.profileImage || null);
+  const { user, logout, updateProfile , refreshUser} = useAuth(); // Changed to updateProfile
 
   // Default stats since these aren't in your user schema
   const userStats = {
-    mealsCooked: 0,
-    favoriteRecipes: 0,
-    cookingStreak: 0,
+    mealsCooked: user?.mealsCooked || 0,
+    favoriteRecipes: user?.favoriteRecipes?.length || 0,
+    cookingStreak: user?.cookingStreak || 0,
   };
+
+   // In your ProfileScreen, replace the useEffect with this:
+
+
+// Remove the problematic useEffect and use useFocusEffect instead
+useFocusEffect(
+  React.useCallback(() => {
+    let isActive = true;
+    
+    const refreshUserData = async () => {
+      if (!isActive) return;
+      
+      console.log('Profile screen focused, refreshing user data...');
+      try {
+        await refreshUser();
+      } catch (error) {
+        console.error('Error refreshing user in profile:', error);
+      }
+    };
+
+    // Add a small delay to prevent immediate refresh on every focus
+    const timer = setTimeout(refreshUserData, 100);
+    
+    return () => {
+      isActive = false;
+      clearTimeout(timer);
+    };
+  }, [refreshUser])
+);
+
+// Optional: Add a manual refresh function for user control
+const [refreshing, setRefreshing] = useState(false);
+
+const handleManualRefresh = async () => {
+  if (refreshing) return;
+  
+  setRefreshing(true);
+  try {
+    await refreshUser(true); // force refresh
+  } catch (error) {
+    console.error('Manual refresh failed:', error);
+  } finally {
+    setRefreshing(false);
+  }
+};
 
   const handleLogout = () => {
     Alert.alert(
@@ -62,13 +107,15 @@ export default function ProfileScreen() {
 
       if (!result.canceled && result.assets[0]) {
         const selectedImage = result.assets[0].uri;
-        setImage(selectedImage);
         
-        // Here you would upload the image to your backend
-        // For now, we'll just update the local state
-        // await updateUser({ profileImage: selectedImage });
+        // Update profile with the new image
+        const updateResult = await updateProfile({ profileImage: selectedImage });
         
-        Alert.alert('Success', 'Profile picture updated!');
+        if (updateResult.success) {
+          Alert.alert('Success', 'Profile picture updated!');
+        } else {
+          Alert.alert('Error', updateResult.error || 'Failed to update profile picture.');
+        }
       }
     } catch (error) {
       console.error('Error picking image:', error);
@@ -93,12 +140,15 @@ export default function ProfileScreen() {
 
       if (!result.canceled && result.assets[0]) {
         const takenImage = result.assets[0].uri;
-        setImage(takenImage);
         
-        // Here you would upload the image to your backend
-        // await updateUser({ profileImage: takenImage });
+        // Update profile with the new image
+        const updateResult = await updateProfile({ profileImage: takenImage });
         
-        Alert.alert('Success', 'Profile picture updated!');
+        if (updateResult.success) {
+          Alert.alert('Success', 'Profile picture updated!');
+        } else {
+          Alert.alert('Error', updateResult.error || 'Failed to update profile picture.');
+        }
       }
     } catch (error) {
       console.error('Error taking photo:', error);
@@ -127,6 +177,24 @@ export default function ProfileScreen() {
     );
   };
 
+  // Helper function to get displayable image URL
+  const getDisplayImage = () => {
+    if (!user?.profileImage) return null;
+    
+    // If it's already a full URL or base64, use it directly
+    if (user.profileImage.startsWith('http') || user.profileImage.startsWith('data:image')) {
+      return user.profileImage;
+    }
+    
+    // If it's a file URI, use it directly
+    if (user.profileImage.startsWith('file://')) {
+      return user.profileImage;
+    }
+    
+    // If it's a relative path, construct full URL (adjust base URL as needed)
+    return `https://your-api-domain.com${user.profileImage}`;
+  };
+
   if (!user) {
     return (
       <View style={styles.container}>
@@ -141,13 +209,19 @@ export default function ProfileScreen() {
     );
   }
 
+  const displayImage = getDisplayImage();
+
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       {/* Header with Profile Image */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.avatarContainer} onPress={showImagePickerOptions}>
-          {image ? (
-            <Image source={{ uri: image }} style={styles.avatarImage} />
+          {displayImage ? (
+            <Image 
+              source={{ uri: displayImage }} 
+              style={styles.avatarImage}
+              onError={(e) => console.log('Image load error:', e.nativeEvent.error)}
+            />
           ) : (
             <View style={styles.avatarPlaceholder}>
               <Ionicons name="person" size={48} color={Colors.textLight} />
@@ -202,11 +276,11 @@ export default function ProfileScreen() {
           <Text style={styles.infoValue}>{user.email}</Text>
         </View>
 
-        {user.preferences?.calorieTarget && (
+        {user.dailyCalorieTarget && (
           <View style={styles.infoItem}>
             <Ionicons name="flame-outline" size={20} color={Colors.textLight} />
             <Text style={styles.infoLabel}>Daily Target:</Text>
-            <Text style={styles.infoValue}>{user.preferences.calorieTarget} calories</Text>
+            <Text style={styles.infoValue}>{user.dailyCalorieTarget} calories</Text>
           </View>
         )}
       </View>

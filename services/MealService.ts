@@ -119,57 +119,68 @@ class MealService {
     }
   }
 
-  // Map frontend meal data to backend format - NEW METHOD
-  // In your MealService.ts - FIXED mapToBackendFormat method
-private mapToBackendFormat(mealData: any): any {
-  console.log('Mapping frontend data to backend format:', mealData);
-  
-  // DEBUG: Log all incoming fields
-  console.log('DEBUG - Incoming mealData fields:', {
-    title: mealData.title,
-    name: mealData.name,
-    category: mealData.category,
-    type: mealData.type,
-    description: mealData.description,
-    instructions: mealData.instructions,
-    recipe: mealData.recipe,
-    cookingTime: mealData.cookingTime,
-    prepTime: mealData.prepTime,
-    ingredients: mealData.ingredients,
-    difficulty: mealData.difficulty,
-    calories: mealData.calories,
-    servings: mealData.servings,
-    image: mealData.image,
-    isPublic: mealData.isPublic
-  });
+  // FIXED: Improved backend format mapping
+  private mapToBackendFormat(mealData: any): any {
+    console.log('Mapping frontend data to backend format:', mealData);
+    
+    // DEBUG: Log all incoming fields
+    console.log('DEBUG - Incoming mealData fields:', {
+      title: mealData.title,
+      name: mealData.name,
+      category: mealData.category,
+      type: mealData.type,
+      description: mealData.description,
+      instructions: mealData.instructions,
+      recipe: mealData.recipe,
+      cookingTime: mealData.cookingTime,
+      prepTime: mealData.prepTime,
+      ingredients: mealData.ingredients,
+      difficulty: mealData.difficulty,
+      calories: mealData.calories,
+      servings: mealData.servings,
+      image: mealData.image,
+      isPublic: mealData.isPublic
+    });
 
-  // FIXED: Use the correct field mapping based on what CreateRecipeScreen sends
-  const backendData = {
-    name: mealData.name || mealData.title, // Use name if provided, otherwise title
-    type: mealData.type || mealData.category?.toLowerCase() || 'dinner',
-    description: mealData.description || '',
-    recipe: mealData.recipe || (Array.isArray(mealData.instructions) 
-      ? mealData.instructions.join('\n')
-      : ''),
-    ingredients: Array.isArray(mealData.ingredients)
-      ? mealData.ingredients.map((ing: any) => ({
-          // FIXED: Use the correct field names that CreateRecipeScreen sends
-          ingredient: ing.ingredient || ing.name || '', // Backend expects 'ingredient'
-          quantity: ing.quantity || ing.amount || '',   // Backend expects 'quantity'
-          unit: ing.unit || ''
-        }))
-      : [],
-    prepTime: mealData.prepTime || mealData.cookingTime || 0,
-    difficulty: mealData.difficulty?.toLowerCase() || 'medium',
-    calories: mealData.calories || 0,
-    servings: mealData.servings || 0,
-    image: mealData.image || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400',
-    isPublic: mealData.isPublic || false,
-  };
+    // Parse instructions - handle both string and array formats
+    let recipeInstructions = '';
+    if (mealData.recipe) {
+      recipeInstructions = mealData.recipe;
+    } else if (Array.isArray(mealData.instructions)) {
+      recipeInstructions = mealData.instructions
+        .filter((step: string) => step && step.trim())
+        .join('\n');
+    }
 
-  console.log('Mapped backend data:', backendData);
-  return backendData;
-}
+    // Parse ingredients - ensure proper format
+    const ingredients = Array.isArray(mealData.ingredients)
+      ? mealData.ingredients
+          .filter((ing: any) => (ing.ingredient || ing.name) && (ing.quantity || ing.amount))
+          .map((ing: any) => ({
+            ingredient: ing.ingredient || ing.name || '',
+            quantity: ing.quantity || ing.amount || '',
+            unit: ing.unit || ''
+          }))
+      : [];
+
+    // FIXED: Use the correct field mapping based on what CreateRecipeScreen sends
+    const backendData = {
+      name: mealData.name || mealData.title || 'Untitled Meal',
+      type: (mealData.type || mealData.category?.toLowerCase() || 'dinner').toLowerCase(),
+      description: mealData.description || '',
+      recipe: recipeInstructions,
+      ingredients: ingredients,
+      prepTime: parseInt(mealData.prepTime || mealData.cookingTime || '30') || 30,
+      difficulty: (mealData.difficulty || 'medium').toLowerCase(),
+      calories: parseInt(mealData.calories || '0') || 0,
+      servings: parseInt(mealData.servings || '1') || 1,
+      image: mealData.image || '',
+      isPublic: Boolean(mealData.isPublic),
+    };
+
+    console.log('Mapped backend data:', backendData);
+    return backendData;
+  }
 
   // Map backend meal data to frontend MealModel - FIXED
   private mapToMealModel(data: any): MealModel {
@@ -188,7 +199,7 @@ private mapToBackendFormat(mealData: any): any {
     // Parse instructions from backend format
     let instructions: string[] = [];
     if (Array.isArray(data.instructions)) {
-      instructions = data.instructions;
+      instructions = data.instructions.filter((step: string) => step && step.trim());
     } else if (data.recipe) {
       instructions = data.recipe.split('\n').filter((step: string) => step.trim());
     } else {
@@ -199,15 +210,25 @@ private mapToBackendFormat(mealData: any): any {
     const category = this.mapCategory(data.type || data.category);
     const difficulty = this.mapDifficulty(data.difficulty);
 
+    // Calculate nutrition per serving
+    const calculateNutritionPerServing = () => {
+      return {
+        calories: Math.round((data.calories || 0) / (data.servings || 1)),
+        protein: 0, // You can add these fields if available
+        carbs: 0,
+        fat: 0
+      };
+    };
+
     // Create MealModel instance with proper parameters
-    return new MealModel(
+    const mealModel = new MealModel(
       data._id || data.id || `meal-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      data.name || data.title || 'Untitled Meal', // Backend: name -> Frontend: title
+      data.name || data.title || 'Untitled Meal',
       data.description || 'No description available',
       category,
       ingredients,
       instructions,
-      data.prepTime || data.cookingTime || 30, // Backend: prepTime -> Frontend: cookingTime
+      data.prepTime || data.cookingTime || 30,
       difficulty,
       data.image || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400',
       data.calories || 500,
@@ -215,8 +236,13 @@ private mapToBackendFormat(mealData: any): any {
       data.isFavorite || false,
       data.rating || 4.5,
       data.tags || this.generateTagsFromCategory(category),
-      new Date(data.createdAt) || new Date()
+      data.createdAt ? new Date(data.createdAt) : new Date()
     );
+
+    // Add the calculateNutritionPerServing method
+    mealModel.calculateNutritionPerServing = calculateNutritionPerServing;
+
+    return mealModel;
   }
 
   // Helper to map backend category to MealCategory
@@ -235,7 +261,8 @@ private mapToBackendFormat(mealData: any): any {
       'high-protein': 'High-Protein'
     };
     
-    return categoryMap[category.toLowerCase()] || 'Dinner';
+    const normalizedCategory = (category || '').toLowerCase();
+    return categoryMap[normalizedCategory] || 'Dinner';
   }
 
   // Helper to map backend difficulty
@@ -249,7 +276,8 @@ private mapToBackendFormat(mealData: any): any {
       'advanced': 'Hard'
     };
     
-    return difficultyMap[difficulty?.toLowerCase()] || 'Medium';
+    const normalizedDifficulty = (difficulty || '').toLowerCase();
+    return difficultyMap[normalizedDifficulty] || 'Medium';
   }
 
   // Generate tags based on category
@@ -273,7 +301,7 @@ private mapToBackendFormat(mealData: any): any {
 
   // Sample data for fallback
   private getSampleMeals(): MealModel[] {
-    return [
+    const sampleMeals = [
       new MealModel(
         '1',
         'Avocado Toast with Poached Eggs',
@@ -315,14 +343,65 @@ private mapToBackendFormat(mealData: any): any {
         ['High-protein', 'Low-carb', 'Healthy']
       )
     ];
+
+    // Add calculateNutritionPerServing method to sample meals
+    sampleMeals.forEach(meal => {
+      meal.calculateNutritionPerServing = () => ({
+        calories: Math.round(meal.calories / meal.servings),
+        protein: 0,
+        carbs: 0,
+        fat: 0
+      });
+    });
+
+    return sampleMeals;
   }
 
+  // Get available categories
   getCategories(): string[] {
     return ['Breakfast', 'Lunch', 'Dinner', 'Dessert', 'Snack', 'Vegetarian', 'Vegan', 'Gluten-Free', 'Dairy-Free', 'Low-Carb', 'High-Protein'];
   }
 
+  // Get available difficulties
   getDifficulties(): string[] {
     return ['Easy', 'Medium', 'Hard'];
+  }
+
+  // Get meals by category
+  async getMealsByCategory(category: string): Promise<MealModel[]> {
+    try {
+      const allMeals = await this.getMeals();
+      return allMeals.filter(meal => 
+        meal.category.toLowerCase() === category.toLowerCase()
+      );
+    } catch (error) {
+      console.error('Failed to get meals by category:', error);
+      throw error;
+    }
+  }
+
+  // Get favorite meals
+  async getFavoriteMeals(): Promise<MealModel[]> {
+    try {
+      const allMeals = await this.getMeals();
+      return allMeals.filter(meal => meal.isFavorite);
+    } catch (error) {
+      console.error('Failed to get favorite meals:', error);
+      throw error;
+    }
+  }
+
+  // Get recent meals
+  async getRecentMeals(limit: number = 10): Promise<MealModel[]> {
+    try {
+      const allMeals = await this.getMeals();
+      return allMeals
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+        .slice(0, limit);
+    } catch (error) {
+      console.error('Failed to get recent meals:', error);
+      throw error;
+    }
   }
 }
 

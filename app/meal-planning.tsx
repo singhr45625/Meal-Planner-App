@@ -53,6 +53,11 @@ export default function MealPlanningScreen() {
     '20:00', '21:00'
   ], []);
 
+  // FIXED: Define getMealDetails FIRST before using it in useMemo
+  const getMealDetails = useCallback((mealId: string) => {
+    return meals.find(meal => meal.id === mealId);
+  }, [meals]);
+
   // Get today's planned meals from weeklyPlan
   const plannedMeals = useMemo(() => {
     const selectedDateStr = format(selectedDate, 'yyyy-MM-dd');
@@ -66,17 +71,61 @@ export default function MealPlanningScreen() {
     return meals;
   }, [weeklyPlan, selectedDate]);
 
+  // FIXED: Calculate total calories for the day
+  const totalCalories = useMemo(() => {
+    let total = 0;
+    
+    plannedMeals.forEach(plannedMeal => {
+      const mealDetails = getMealDetails(plannedMeal.mealId);
+      if (mealDetails && mealDetails.calories) {
+        total += mealDetails.calories;
+      }
+    });
+    
+    console.log('🔥 Total calories calculated:', total, 'from', plannedMeals.length, 'meals');
+    return total;
+  }, [plannedMeals, getMealDetails]); // FIXED: Added getMealDetails dependency
+
+  // FIXED: Calculate calories by meal type
+  const caloriesByMealType = useMemo(() => {
+    const calories: Record<MealType, number> = {
+      breakfast: 0,
+      lunch: 0,
+      dinner: 0,
+      snack: 0,
+    };
+
+    plannedMeals.forEach(plannedMeal => {
+      const mealDetails = getMealDetails(plannedMeal.mealId);
+      if (mealDetails && mealDetails.calories) {
+        calories[plannedMeal.mealType] += mealDetails.calories;
+      }
+    });
+
+    console.log('🍽️ Calories by meal type:', calories);
+    return calories;
+  }, [plannedMeals, getMealDetails]); // FIXED: Added getMealDetails dependency
+
   // Debug effect to track state changes
   useEffect(() => {
     console.log('=== MEAL PLANNING DEBUG ===');
     console.log('Selected Date:', format(selectedDate, 'yyyy-MM-dd'));
     console.log('Weekly Plan Length:', weeklyPlan.length);
     console.log('Planned Meals Length:', plannedMeals.length);
+    console.log('🔥 Total Calories:', totalCalories);
+    console.log('🍽️ Calories by type:', caloriesByMealType);
     plannedMeals.forEach((meal, index) => {
-      console.log(`Meal ${index + 1}:`, meal.mealType, meal.mealId, meal.scheduledTime);
+      const mealDetails = getMealDetails(meal.mealId);
+      console.log(`Meal ${index + 1}:`, {
+        type: meal.mealType,
+        id: meal.mealId,
+        time: meal.scheduledTime,
+        title: mealDetails?.title,
+        calories: mealDetails?.calories
+      });
     });
     console.log('=== END DEBUG ===');
-  }, [weeklyPlan, plannedMeals, selectedDate]);
+  }, [weeklyPlan, plannedMeals, selectedDate, totalCalories, caloriesByMealType, getMealDetails]);
 
   // Track when a meal was just added
   useEffect(() => {
@@ -128,7 +177,8 @@ export default function MealPlanningScreen() {
         mealId: meal.id,
         mealType: selectedMealType,
         scheduledTime: scheduledTime,
-        mealTitle: meal.title
+        mealTitle: meal.title,
+        mealCalories: meal.calories
       });
 
       const result = await addMealToPlan(
@@ -200,7 +250,7 @@ export default function MealPlanningScreen() {
 
   const getMealsByType = useCallback((mealType: MealType) => {
     const meals = plannedMeals.filter(meal => meal.mealType === mealType);
-    console.log(`📊 Meals for ${mealType}:`, meals.length);
+    console.log(`📊 Meals for ${mealType}:`, meals.length, 'meals');
     return meals;
   }, [plannedMeals]);
 
@@ -219,10 +269,6 @@ export default function MealPlanningScreen() {
     setSelectedDate(newDate);
   }, [selectedDate, setSelectedDate]);
 
-  const getMealDetails = useCallback((mealId: string) => {
-    return meals.find(meal => meal.id === mealId);
-  }, [meals]);
-
   // Helper function to safely format cooking time
   const getFormattedCookingTime = useCallback((cookingTime: number): string => {
     if (cookingTime < 60) {
@@ -234,11 +280,12 @@ export default function MealPlanningScreen() {
     }
   }, []);
 
-  // Render function for meal type sections
+  // FIXED: Render function for meal type sections with calorie totals
   const renderMealTypeSection = useCallback((mealType: typeof mealTypes[0]) => {
     const typeMeals = getMealsByType(mealType.type);
+    const typeCalories = caloriesByMealType[mealType.type];
     
-    console.log(`🎨 Rendering ${mealType.type} section with ${typeMeals.length} meals`);
+    console.log(`🎨 Rendering ${mealType.type} section with ${typeMeals.length} meals, ${typeCalories} calories`);
     
     return (
       <View key={mealType.type} style={styles.mealTypeSection}>
@@ -251,6 +298,11 @@ export default function MealPlanningScreen() {
             />
             <Text style={styles.mealTypeLabel}>{mealType.label}</Text>
             <Text style={styles.mealCount}>({typeMeals.length})</Text>
+            {typeCalories > 0 && (
+              <Text style={styles.mealTypeCalories}>
+                • {typeCalories} cal
+              </Text>
+            )}
           </View>
           <TouchableOpacity 
             style={styles.addTypeButton}
@@ -303,7 +355,7 @@ export default function MealPlanningScreen() {
         )}
       </View>
     );
-  }, [getMealsByType, getMealTypeColor, getMealDetails, handleRemoveMeal, getFormattedCookingTime]);
+  }, [getMealsByType, getMealTypeColor, caloriesByMealType, getMealDetails, handleRemoveMeal, getFormattedCookingTime]);
 
   const loading = planLoading || localLoading;
 
@@ -368,11 +420,26 @@ export default function MealPlanningScreen() {
           </View>
         </View>
 
+        {/* FIXED: Total Calories Summary */}
+        <View style={styles.caloriesSummary}>
+          <View style={styles.caloriesCard}>
+            <Ionicons name="flame" size={24} color={Colors.primary} />
+            <View style={styles.caloriesContent}>
+              <Text style={styles.caloriesLabel}>Total Calories</Text>
+              <Text style={styles.caloriesValue}>{totalCalories} cal</Text>
+              <Text style={styles.caloriesSubtext}>
+                {plannedMeals.length} meal{plannedMeals.length !== 1 ? 's' : ''} planned
+              </Text>
+            </View>
+          </View>
+        </View>
+
         {/* Debug Info */}
         {lastAddedMeal && (
           <View style={styles.debugInfo}>
             <Text style={styles.debugText}>Last added: {lastAddedMeal}</Text>
             <Text style={styles.debugText}>Total meals: {plannedMeals.length}</Text>
+            <Text style={styles.debugText}>Total calories: {totalCalories}</Text>
           </View>
         )}
 
@@ -537,6 +604,8 @@ export default function MealPlanningScreen() {
   );
 }
 
+// ... (styles remain exactly the same as in the previous version)
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -591,6 +660,40 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: Colors.text,
     marginBottom: Layout.spacing.md,
+  },
+  // FIXED: Add calories summary styles
+  caloriesSummary: {
+    margin: Layout.spacing.lg,
+    marginTop: Layout.spacing.md,
+    marginBottom: Layout.spacing.md,
+  },
+  caloriesCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.primary + '15',
+    padding: Layout.spacing.lg,
+    borderRadius: Layout.borderRadius.lg,
+    borderLeftWidth: 4,
+    borderLeftColor: Colors.primary,
+    gap: Layout.spacing.md,
+  },
+  caloriesContent: {
+    flex: 1,
+  },
+  caloriesLabel: {
+    fontSize: 14,
+    color: Colors.textLight,
+    marginBottom: 4,
+  },
+  caloriesValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: Colors.primary,
+    marginBottom: 2,
+  },
+  caloriesSubtext: {
+    fontSize: 12,
+    color: Colors.textLight,
   },
   dateSelector: {
     flexDirection: 'row',
@@ -670,6 +773,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Layout.spacing.sm,
+    flexWrap: 'wrap',
   },
   mealTypeLabel: {
     fontSize: 16,
@@ -679,6 +783,12 @@ const styles = StyleSheet.create({
   mealCount: {
     fontSize: 14,
     color: Colors.textLight,
+  },
+  // FIXED: Add meal type calories style
+  mealTypeCalories: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.primary,
   },
   addTypeButton: {
     padding: Layout.spacing.xs,

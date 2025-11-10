@@ -12,7 +12,6 @@ export default function RootLayout() {
   const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
-    // Simulate some initial loading
     const timer = setTimeout(() => {
       setIsReady(true);
     }, 1000);
@@ -20,7 +19,6 @@ export default function RootLayout() {
     return () => clearTimeout(timer);
   }, []);
 
-  // Show loading screen while checking authentication
   if (authLoading || !isReady) {
     return (
       <GestureHandlerRootView style={styles.container}>
@@ -39,13 +37,8 @@ export default function RootLayout() {
         <StatusBar style="auto" />
         <Stack
           screenOptions={{
-            headerStyle: {
-              backgroundColor: Colors.primary,
-            },
-            headerTintColor: '#fff',
-            headerTitleStyle: {
-              fontWeight: 'bold',
-            },
+            // REMOVE duplicate header styles - let individual layouts handle them
+            headerShown: false, // Let child layouts control headers
           }}
         >
           {isAuthenticated ? (
@@ -62,19 +55,43 @@ export default function RootLayout() {
                 options={{ 
                   title: 'Meal Planning',
                   presentation: 'modal',
+                  headerShown: true, // Show header for modals
+                  headerStyle: {
+                    backgroundColor: Colors.primary,
+                  },
+                  headerTintColor: '#fff',
+                  headerTitleStyle: {
+                    fontWeight: 'bold',
+                  },
                 }} 
               />
               <Stack.Screen 
                 name="meal-detail/[id]" 
                 options={{ 
                   title: 'Recipe Details',
+                  headerShown: true, // Show header for detail pages
+                  headerStyle: {
+                    backgroundColor: Colors.primary,
+                  },
+                  headerTintColor: '#fff',
+                  headerTitleStyle: {
+                    fontWeight: 'bold',
+                  },
                 }} 
               />
               <Stack.Screen 
                 name="create-recipe" 
                 options={{ 
-                title: 'Create Recipe',
-                presentation: 'modal',
+                  title: 'Create Recipe',
+                  presentation: 'modal',
+                  headerShown: true, // Show header for modals
+                  headerStyle: {
+                    backgroundColor: Colors.primary,
+                  },
+                  headerTintColor: '#fff',
+                  headerTitleStyle: {
+                    fontWeight: 'bold',
+                  },
                 }} 
               />
             </>

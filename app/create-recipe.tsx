@@ -14,12 +14,11 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Colors } from '../constants/Colors';
 import { Layout } from '../constants/Layout';
 import { Button } from '../components/ui/Button';
 import { useMeals } from '../hooks/useMeals';
-import ApiService from '../services/ApiService';
 
 interface Ingredient {
   id: string;
@@ -32,7 +31,6 @@ export default function CreateRecipeScreen() {
   const { createMeal } = useMeals();
   const [loading, setLoading] = useState(false);
   const [image, setImage] = useState<string | null>(null);
-  const [uploadingImage, setUploadingImage] = useState(false);
   
   // Form state
   const [formData, setFormData] = useState({
@@ -70,7 +68,7 @@ export default function CreateRecipeScreen() {
         allowsEditing: true,
         aspect: [4, 3],
         quality: 0.8,
-        base64: true, // This is enough to get base64 data
+        base64: false,
       });
 
       if (!result.canceled && result.assets[0]) {
@@ -83,52 +81,38 @@ export default function CreateRecipeScreen() {
     }
   };
 
-  // Upload image to backend
-  const uploadImageToServer = async (imageUri: string): Promise<string> => {
-    try {
-      setUploadingImage(true);
-      console.log('Starting image upload:', imageUri);
-
-      // FIXED: Use the correct encoding method
-      const base64 = await FileSystem.readAsStringAsync(imageUri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-
-      // Upload to your backend
-      const response = await ApiService.post('/upload/base64', {
-        image: `data:image/jpeg;base64,${base64}`,
-        fileName: `meal-${Date.now()}.jpg`,
-      });
-
-      if (!response.success) {
-        throw new Error(response.message || 'Failed to upload image');
-      }
-
-      console.log('Image uploaded successfully:', response.data.url);
-      return response.data.url;
-    } catch (error) {
-      console.error('Error uploading image:', error);
-      throw new Error('Failed to upload image');
-    } finally {
-      setUploadingImage(false);
-    }
-  };
-
-  // SIMPLIFIED: Get image for upload - use category placeholders for now
+  // FIXED: Using legacy FileSystem API with proper encoding
   const getImageForUpload = async (imageUri: string): Promise<string> => {
     try {
+      console.log('🖼️ Processing image for upload...');
+      
       // If it's already a web URL, use it directly
       if (imageUri.startsWith('http')) {
-        console.log('Using existing web image:', imageUri);
+        console.log('🔗 Using existing web image:', imageUri);
         return imageUri;
       }
 
-      // For now, use category-specific placeholders until upload is fixed
-      console.log('Using category placeholder instead of uploading');
-      return getCategoryPlaceholder(formData.category);
+      // For local images, convert to base64 using legacy API
+      console.log('📸 Converting local image to base64...');
+      
+      try {
+        // Use string literal encoding with legacy API
+        const base64 = await FileSystem.readAsStringAsync(imageUri, { 
+          encoding: 'base64' as any 
+        });
+        
+        const imageType = imageUri.split('.').pop() || 'jpg';
+        const base64String = `data:image/${imageType};base64,${base64}`;
+        
+        console.log('✅ Image converted to base64 successfully');
+        return base64String;
+      } catch (base64Error) {
+        console.log('🔄 Base64 conversion failed, using placeholder');
+        return getCategoryPlaceholder(formData.category);
+      }
       
     } catch (error) {
-      console.error('Image processing failed, using placeholder:', error);
+      console.error('❌ Image processing failed:', error);
       return getCategoryPlaceholder(formData.category);
     }
   };
@@ -229,13 +213,13 @@ export default function CreateRecipeScreen() {
     return true;
   };
 
-  // UPDATED: Handle form submission with immediate state update
+  // FIXED: Handle form submission with complete data mapping
   const handleSubmit = async () => {
     if (!validateForm()) return;
 
     setLoading(true);
     try {
-      console.log('=== IMAGE UPLOAD DEBUG ===');
+      console.log('=== MEAL CREATION DEBUG ===');
       console.log('Selected image:', image);
       console.log('Form category:', formData.category);
 
@@ -243,29 +227,37 @@ export default function CreateRecipeScreen() {
 
       if (image) {
         try {
-          console.log('Processing image...');
+          console.log('🖼️ Processing selected image...');
           finalImageUrl = await getImageForUpload(image);
-          console.log('Final image URL:', finalImageUrl);
+          console.log('✅ Final image data ready for backend');
         } catch (imageError) {
-          console.error('Image processing failed, using category placeholder:', imageError);
+          console.error('❌ Image processing failed:', imageError);
+          finalImageUrl = getCategoryPlaceholder(formData.category);
         }
       } else {
-        console.log('No image selected, using category placeholder');
+        console.log('📸 No image selected, using category placeholder');
       }
 
+      // FIXED: Complete data mapping with all required fields
       const recipeData = {
         name: formData.title.trim(),
+        title: formData.title.trim(), // Added for compatibility
         type: formData.category.toLowerCase(),
+        category: formData.category, // Added for compatibility
         description: formData.description.trim(),
         recipe: instructions.filter(inst => inst.trim()).join('\n'),
+        instructions: instructions.filter(inst => inst.trim()), // Added instructions array
         ingredients: ingredients
           .filter(ing => ing.name.trim() && ing.amount.trim() && ing.unit.trim())
           .map(ing => ({
             ingredient: ing.name.trim(),
+            name: ing.name.trim(), // Added for compatibility
             quantity: ing.amount.trim(),
+            amount: ing.amount.trim(), // Added for compatibility
             unit: ing.unit.trim(),
           })),
         prepTime: parseInt(formData.cookingTime) || 0,
+        cookingTime: parseInt(formData.cookingTime) || 0, // Added for compatibility
         difficulty: formData.difficulty.toLowerCase(),
         calories: parseInt(formData.calories) || 0,
         servings: parseInt(formData.servings) || 0,
@@ -273,7 +265,10 @@ export default function CreateRecipeScreen() {
         isPublic: formData.isPublic,
       };
 
-      console.log('Sending meal data to backend:', recipeData);
+      console.log('📤 Sending meal data to backend...');
+      console.log('Image data type:', typeof recipeData.image);
+      console.log('Image preview:', recipeData.image.substring(0, 100) + '...');
+      console.log('Full recipe data:', JSON.stringify(recipeData, null, 2));
 
       const success = await createMeal(recipeData);
       
@@ -282,7 +277,6 @@ export default function CreateRecipeScreen() {
           { 
             text: 'OK', 
             onPress: () => {
-              // Use replace to force refresh the recipes screen
               router.replace('/(tabs)/recipes');
             }
           }
@@ -291,7 +285,7 @@ export default function CreateRecipeScreen() {
         Alert.alert('Error', 'Failed to create recipe. Please try again.');
       }
     } catch (error) {
-      console.error('Error creating recipe:', error);
+      console.error('❌ Error creating recipe:', error);
       Alert.alert('Error', 'Failed to create recipe. Please try again.');
     } finally {
       setLoading(false);
@@ -323,29 +317,22 @@ export default function CreateRecipeScreen() {
             <TouchableOpacity 
               style={styles.imagePicker} 
               onPress={pickImage}
-              disabled={uploadingImage}
             >
               {image ? (
                 <View style={styles.imageWithOverlay}>
                   <Image source={{ uri: image }} style={styles.image} />
-                  {uploadingImage && (
-                    <View style={styles.uploadingOverlay}>
-                      <ActivityIndicator size="large" color={Colors.primary} />
-                      <Text style={styles.uploadingText}>Uploading Image...</Text>
-                    </View>
-                  )}
                 </View>
               ) : (
                 <View style={styles.imagePlaceholder}>
                   <Ionicons name="camera-outline" size={48} color={Colors.textLight} />
                   <Text style={styles.imagePlaceholderText}>
-                    {uploadingImage ? 'Uploading...' : 'Add Photo'}
+                    Add Photo
                   </Text>
                 </View>
               )}
             </TouchableOpacity>
             
-            {image && !uploadingImage && (
+            {image && (
               <TouchableOpacity 
                 style={styles.removeImageButton}
                 onPress={removeImage}
@@ -360,15 +347,8 @@ export default function CreateRecipeScreen() {
               Add a photo of your delicious recipe (optional)
             </Text>
           )}
-          
-          {uploadingImage && (
-            <Text style={styles.uploadingHint}>
-              Uploading your image... Please wait.
-            </Text>
-          )}
         </View>
 
-        {/* Rest of your form components remain exactly the same */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Basic Information</Text>
           
@@ -582,7 +562,7 @@ export default function CreateRecipeScreen() {
             variant="primary"
             fullWidth
             loading={loading}
-            disabled={loading || uploadingImage}
+            disabled={loading}
           />
         </View>
 
@@ -592,7 +572,6 @@ export default function CreateRecipeScreen() {
   );
 }
 
-// Your styles remain exactly the same
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -663,21 +642,6 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
-  uploadingOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  uploadingText: {
-    color: '#fff',
-    marginTop: Layout.spacing.sm,
-    fontSize: 14,
-  },
   imagePlaceholder: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -702,13 +666,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: Layout.spacing.sm,
     fontStyle: 'italic',
-  },
-  uploadingHint: {
-    fontSize: 14,
-    color: Colors.primary,
-    textAlign: 'center',
-    marginTop: Layout.spacing.sm,
-    fontWeight: '600',
   },
   inputContainer: {
     marginBottom: Layout.spacing.md,

@@ -8,6 +8,7 @@ export const useAuth = () => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(false);
   const [authLoading, setAuthLoading] = useState(true);
+  const [lastRefreshTime, setLastRefreshTime] = useState(0);
   
   const { storedValue: storedUser, setValue: setStoredUser } = useStorage<User | null>('user', null);
   const { storedValue: storedToken, setValue: setStoredToken } = useStorage<string | null>('auth_token', null);
@@ -237,30 +238,147 @@ export const useAuth = () => {
     }
   }, [user, setStoredUser]);
 
-  const updateProfile = useCallback(async (updates: Partial<User>) => {
-    setLoading(true);
+ // In your useAuth hook, update the updateProfile function:
+// In your useAuth hook, replace the updateProfile function with this:
+const updateProfile = useCallback(async (updates: Partial<User>) => {
+  setLoading(true);
+  try {
+    console.log('🔄 Updating profile with:', updates);
+    
+    // Use the correct endpoint based on what your backend has
+    // Try PUT /auth/profile first, if that doesn't work, we'll use POST /auth/register
+    let response;
     try {
-      const response = await ApiService.put('/auth/profile', updates);
+      response = await ApiService.put('/auth/profile', updates);
+    } catch (error) {
+      console.log('PUT /auth/profile failed, trying alternative...');
+      // If PUT fails, try a different endpoint or method
+      response = await ApiService.post('/auth/update-profile', updates);
+    }
+    
+    console.log('📥 Profile update response:', response);
+
+    if (response && response.success) {
+      let updatedUserData;
       
-      if (response.success) {
-        const updatedUser = mapBackendUserToFrontend(response.user);
-        setUser(updatedUser);
-        await setStoredUser(updatedUser);
-        return { success: true, user: updatedUser };
+      // Handle different response formats
+      if (response.user) {
+        updatedUserData = response.user;
+      } else if (response.data) {
+        updatedUserData = response.data;
       } else {
-        return { success: false, error: response.message || 'Failed to update profile' };
+        // If no user data in response, merge updates with current user
+        updatedUserData = { ...user, ...updates };
       }
-    } catch (error: any) {
-      console.error('Update profile error:', error);
+      
+      const updatedUser = mapBackendUserToFrontend(updatedUserData);
+      
+      console.log('✅ Updating user state with:', updatedUser);
+      
+      // CRITICAL: Update both state and storage
+      setUser(updatedUser);
+      await setStoredUser(updatedUser);
+      
+      console.log('🎉 Profile updated successfully');
+      return { success: true, user: updatedUser };
+    } else {
+      const errorMessage = response?.message || 'Failed to update profile';
+      console.error('❌ Profile update failed:', errorMessage);
+      return { success: false, error: errorMessage };
+    }
+  } catch (error: any) {
+    console.error('❌ Update profile error:', error);
+    
+    // Even if backend fails, update local state for immediate UI feedback
+    if (user) {
+      const updatedUser = { ...user, ...updates };
+      setUser(updatedUser);
+      await setStoredUser(updatedUser);
+      console.log('🔄 Updated local state despite backend error');
+    }
+    
+    return { 
+      success: false, 
+      error: error.message || 'Failed to update profile' 
+    };
+  } finally {
+    setLoading(false);
+  }
+}, [user, setStoredUser, mapBackendUserToFrontend]);
+
+// Add this function to your useAuth hook
+// In your useAuth hook, replace the refreshUser function with this:
+// Add this at the top of your useAuth hook
+
+const refreshUser = useCallback(async (forceRefresh = false) => {
+  const now = Date.now();
+  const timeSinceLastRefresh = now - lastRefreshTime;
+  
+  // Rate limiting: don't refresh more than once every 10 seconds
+  if (!forceRefresh && timeSinceLastRefresh < 10000) {
+    console.log('Refresh skipped - too soon since last refresh');
+    return { success: false, error: 'Refresh too frequent' };
+  }
+
+  // Don't refresh if we don't have a token
+  if (!storedToken && !forceRefresh) {
+    console.log('No token available, skipping refresh');
+    return { success: false, error: 'No authentication token' };
+  }
+
+  try {
+    console.log('Refreshing user data...');
+    setLastRefreshTime(now);
+    
+    // Check if token exists before making the request
+    if (!storedToken) {
+      throw new Error('No authentication token available');
+    }
+
+    const response = await ApiService.get('/auth/profile');
+    
+    console.log('User refresh response:', response);
+
+    if (response.success && response.data) {
+      const updatedUser = mapBackendUserToFrontend(response.data);
+      
+      // Update both state and storage
+      setUser(updatedUser);
+      await setStoredUser(updatedUser);
+      
+      console.log('User data refreshed successfully');
+      return { success: true, user: updatedUser };
+    } else {
+      // If refresh fails, it might be due to token expiration
+      console.error('Failed to refresh user data:', response.message);
+      
+      // If we get unauthorized, clear the token
+      if (response.message?.includes('Unauthorized') || response.status === 401) {
+        console.log('Token expired during refresh, logging out...');
+        await logout();
+      }
+      
       return { 
         success: false, 
-        error: error.message || 'Failed to update profile' 
+        error: response.message || 'Failed to refresh user data' 
       };
-    } finally {
-      setLoading(false);
     }
-  }, [setStoredUser, mapBackendUserToFrontend]);
-
+  } catch (error: any) {
+    console.error('Error refreshing user:', error);
+    setLastRefreshTime(0); // Reset on error
+    
+    // Handle specific error cases
+    if (error.message?.includes('Unauthorized') || error.message?.includes('401')) {
+      console.log('Unauthorized error, clearing token...');
+      await logout();
+    }
+    
+    return { 
+      success: false, 
+      error: error.message || 'Failed to refresh user data' 
+    };
+  }
+}, [storedToken, setStoredUser, mapBackendUserToFrontend, logout, lastRefreshTime]);
   return {
     user: storedUser || user,
     loading,
@@ -270,6 +388,7 @@ export const useAuth = () => {
     logout,
     updateUser,
     updateProfile,
+    refreshUser,
     isAuthenticated: !!storedToken,
   };
 };

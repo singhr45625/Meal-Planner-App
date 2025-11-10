@@ -1,13 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import React from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useCallback } from 'react';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View, RefreshControl } from 'react-native';
 import MealCard from '../../components/MealCard';
 import { Colors } from '../../constants/Colors';
 import { useMeals } from '../../hooks/useMeals';
 
 export default function HomeScreen() {
-  const { meals, toggleFavorite } = useMeals();
+  const { meals, toggleFavorite, loading, refreshMeals } = useMeals();
+  const [refreshing, setRefreshing] = React.useState(false);
+
   const featuredMeals = meals.slice(0, 3);
   const favoriteMeals = meals.filter(meal => meal.isFavorite).slice(0, 3);
 
@@ -15,11 +17,49 @@ export default function HomeScreen() {
     router.push(`/meal-detail/${meal.id}`);
   };
 
+  // Refresh function
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await refreshMeals();
+      console.log('🔄 Home screen refreshed');
+    } catch (error) {
+      console.error('❌ Failed to refresh home screen:', error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refreshMeals]);
+
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+    <ScrollView 
+      style={styles.container} 
+      showsVerticalScrollIndicator={false}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          colors={[Colors.primary]}
+          tintColor={Colors.primary}
+        />
+      }
+    >
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>Meal Planner</Text>
+        <View style={styles.headerTop}>
+          <Text style={styles.title}>Meal Planner</Text>
+          <TouchableOpacity 
+            style={styles.refreshButton}
+            onPress={onRefresh}
+            disabled={refreshing}
+          >
+            <Ionicons 
+              name="refresh" 
+              size={24} 
+              color={Colors.primary} 
+              style={refreshing ? styles.refreshingIcon : null}
+            />
+          </TouchableOpacity>
+        </View>
         <Text style={styles.subtitle}>Plan your meals, eat better</Text>
       </View>
 
@@ -50,29 +90,50 @@ export default function HomeScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Featured Meals */}
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Featured Recipes</Text>
-          <TouchableOpacity onPress={() => router.push('/(tabs)/recipes')}>
-            <Text style={styles.seeAllText}>See All</Text>
-          </TouchableOpacity>
+      {/* Loading State */}
+      {loading && !refreshing && (
+        <View style={styles.loadingContainer}>
+          <Ionicons name="cafe" size={40} color={Colors.primary} />
+          <Text style={styles.loadingText}>Loading meals...</Text>
         </View>
-        {featuredMeals.map(meal => (
-          <MealCard
-            key={meal.id}
-            meal={meal}
-            onPress={handleMealPress}
-            onToggleFavorite={toggleFavorite}
-          />
-        ))}
-      </View>
+      )}
+
+      {/* Featured Meals */}
+      {!loading && (
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Featured Recipes</Text>
+            <TouchableOpacity onPress={() => router.push('/(tabs)/recipes')}>
+              <Text style={styles.seeAllText}>See All</Text>
+            </TouchableOpacity>
+          </View>
+          {featuredMeals.length > 0 ? (
+            featuredMeals.map(meal => (
+              <MealCard
+                key={meal.id}
+                meal={meal}
+                onPress={handleMealPress}
+                onToggleFavorite={toggleFavorite}
+              />
+            ))
+          ) : (
+            <View style={styles.emptyState}>
+              <Ionicons name="fast-food" size={40} color={Colors.textLight} />
+              <Text style={styles.emptyStateText}>No featured meals</Text>
+              <Text style={styles.emptyStateSubtext}>Add some meals to see them here</Text>
+            </View>
+          )}
+        </View>
+      )}
 
       {/* Favorite Meals */}
-      {favoriteMeals.length > 0 && (
+      {!loading && favoriteMeals.length > 0 && (
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Your Favorites</Text>
+            <TouchableOpacity onPress={() => router.push('/(tabs)/recipes?filter=favorites')}>
+              <Text style={styles.seeAllText}>See All</Text>
+            </TouchableOpacity>
           </View>
           {favoriteMeals.map(meal => (
             <MealCard
@@ -82,6 +143,20 @@ export default function HomeScreen() {
               onToggleFavorite={toggleFavorite}
             />
           ))}
+        </View>
+      )}
+
+      {/* Empty Favorites State */}
+      {!loading && favoriteMeals.length === 0 && meals.length > 0 && (
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Your Favorites</Text>
+          </View>
+          <View style={styles.emptyState}>
+            <Ionicons name="heart" size={40} color={Colors.textLight} />
+            <Text style={styles.emptyStateText}>No favorite meals yet</Text>
+            <Text style={styles.emptyStateSubtext}>Tap the heart icon to add favorites</Text>
+          </View>
         </View>
       )}
     </ScrollView>
@@ -97,6 +172,11 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingTop: 40,
   },
+  headerTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
   title: {
     fontSize: 32,
     fontWeight: 'bold',
@@ -106,6 +186,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: Colors.textLight,
     marginTop: 8,
+  },
+  refreshButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: Colors.surface,
+  },
+  refreshingIcon: {
+    transform: [{ rotate: '360deg' }],
   },
   actionsContainer: {
     flexDirection: 'row',
@@ -152,5 +240,37 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.primary,
     fontWeight: '600',
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 40,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: Colors.textLight,
+    textAlign: 'center',
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 40,
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    marginVertical: 10,
+  },
+  emptyStateText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.text,
+    marginTop: 12,
+    textAlign: 'center',
+  },
+  emptyStateSubtext: {
+    fontSize: 14,
+    color: Colors.textLight,
+    marginTop: 4,
+    textAlign: 'center',
   },
 });
