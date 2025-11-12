@@ -6,10 +6,13 @@ import { PaperProvider } from 'react-native-paper';
 import { useEffect, useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { Colors } from '../constants/Colors';
+import { useUpdates } from '../hooks/useUpdates';
 
 export default function RootLayout() {
   const { isAuthenticated, authLoading } = useAuth();
   const [isReady, setIsReady] = useState(false);
+
+  useUpdates(); 
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -37,8 +40,7 @@ export default function RootLayout() {
         <StatusBar style="auto" />
         <Stack
           screenOptions={{
-            // REMOVE duplicate header styles - let individual layouts handle them
-            headerShown: false, // Let child layouts control headers
+            headerShown: false,
           }}
         >
           {isAuthenticated ? (
@@ -46,37 +48,21 @@ export default function RootLayout() {
             <>
               <Stack.Screen 
                 name="(tabs)" 
-                options={{ 
-                  headerShown: false 
-                }} 
+                options={{ headerShown: false }} 
               />
               <Stack.Screen 
                 name="meal-planning" 
                 options={{ 
                   title: 'Meal Planning',
                   presentation: 'modal',
-                  headerShown: true, // Show header for modals
-                  headerStyle: {
-                    backgroundColor: Colors.primary,
-                  },
-                  headerTintColor: '#fff',
-                  headerTitleStyle: {
-                    fontWeight: 'bold',
-                  },
+                  headerShown: true,
                 }} 
               />
+              {/* FIX: Remove header config from here - let the screen handle it */}
               <Stack.Screen 
                 name="meal-detail/[id]" 
                 options={{ 
-                  title: 'Recipe Details',
-                  headerShown: true, // Show header for detail pages
-                  headerStyle: {
-                    backgroundColor: Colors.primary,
-                  },
-                  headerTintColor: '#fff',
-                  headerTitleStyle: {
-                    fontWeight: 'bold',
-                  },
+                  headerShown: false // Let the meal detail screen handle its own header
                 }} 
               />
               <Stack.Screen 
@@ -84,14 +70,7 @@ export default function RootLayout() {
                 options={{ 
                   title: 'Create Recipe',
                   presentation: 'modal',
-                  headerShown: true, // Show header for modals
-                  headerStyle: {
-                    backgroundColor: Colors.primary,
-                  },
-                  headerTintColor: '#fff',
-                  headerTitleStyle: {
-                    fontWeight: 'bold',
-                  },
+                  headerShown: true,
                 }} 
               />
             </>
@@ -99,9 +78,7 @@ export default function RootLayout() {
             // Not authenticated - show auth screens
             <Stack.Screen 
               name="(auth)" 
-              options={{ 
-                headerShown: false 
-              }} 
+              options={{ headerShown: false }} 
             />
           )}
         </Stack>

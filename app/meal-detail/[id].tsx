@@ -36,7 +36,7 @@ export default function MealDetailScreen() {
   const { id } = useLocalSearchParams();
   const [meal, setMeal] = useState<MealModel | null>(null);
   const [loading, setLoading] = useState(true);
-  const { toggleFavorite, isFavorite } = useFavorites();
+  const { toggleFavorite, isFavorite, loading: favoritesLoading } = useFavorites();
 
   useEffect(() => {
     loadMeal();
@@ -73,6 +73,19 @@ export default function MealDetailScreen() {
     router.push(`/meal-planning?mealId=${id}`);
   };
 
+  const handleToggleFavorite = () => {
+    if (!meal || !meal.id) return;
+    toggleFavorite(meal.id);
+  };
+
+  // Safe function to get favorite status
+  const getFavoriteStatus = (): boolean => {
+    if (!meal || !meal.id || favoritesLoading) {
+      return false;
+    }
+    return isFavorite(meal.id);
+  };
+
   if (loading) {
     return <LoadingSpinner text="Loading recipe..." fullScreen />;
   }
@@ -94,6 +107,7 @@ export default function MealDetailScreen() {
   // Use safe method calls
   const formattedCookingTime = getFormattedCookingTime(meal.cookingTime);
   const nutritionPerServing = meal.calculateNutritionPerServing?.() || { calories: Math.round(meal.calories / meal.servings) };
+  const favoriteStatus = getFavoriteStatus();
 
   return (
     <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
@@ -108,12 +122,13 @@ export default function MealDetailScreen() {
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.favoriteButton}
-          onPress={() => toggleFavorite(meal.id)}
+          onPress={handleToggleFavorite}
+          disabled={favoritesLoading}
         >
           <Ionicons
-            name={isFavorite(meal.id) ? "heart" : "heart-outline"}
+            name={favoriteStatus ? "heart" : "heart-outline"}
             size={24}
-            color={isFavorite(meal.id) ? Colors.primary : Colors.text}
+            color={favoriteStatus ? Colors.primary : Colors.text}
           />
         </TouchableOpacity>
       </View>
@@ -164,7 +179,7 @@ export default function MealDetailScreen() {
         {/* Ingredients */}
         <Card>
           <Text style={styles.sectionTitle}>Ingredients</Text>
-          {meal.ingredients.map((ingredient, index) => (
+          {meal.ingredients && meal.ingredients.map((ingredient, index) => (
             <View key={index} style={styles.ingredientItem}>
               <View style={styles.ingredientDot} />
               <Text style={styles.ingredientText}>
@@ -177,7 +192,7 @@ export default function MealDetailScreen() {
         {/* Instructions */}
         <Card>
           <Text style={styles.sectionTitle}>Instructions</Text>
-          {meal.instructions.map((instruction, index) => (
+          {meal.instructions && meal.instructions.map((instruction, index) => (
             <View key={index} style={styles.instructionItem}>
               <View style={styles.stepNumber}>
                 <Text style={styles.stepNumberText}>{index + 1}</Text>

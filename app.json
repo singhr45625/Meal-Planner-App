@@ -1,15 +1,19 @@
 {
   "expo": {
     "name": "Meal_planner",
-    "slug": "Meal_planner",
-    "version": "1.0.0",
+    "slug": "Meal_planner-v2",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "mealplanner",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "y",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -19,7 +23,8 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.rohan12320754.Meal_planner"
     },
     "web": {
       "output": "static",
@@ -43,6 +48,19 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "c8d970d3-ead1-4834-aac9-86f0d854f4e5"
+      }
+    },
+    "owner": "rohan12320755",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/c8d970d3-ead1-4834-aac9-86f0d854f4e5"
     }
   }
 }
