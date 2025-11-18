@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Alert } from 'react-native';
 import { MealModel } from '../types/Meal';
-import MealService from '../services/MealService';
+import { mealService } from '../services/MealService';
 import StorageService from '../services/StorageService';
 
 const FAVORITES_KEY = 'user_favorites';
 
 export const useFavorites = () => {
-  const [favorites, setFavorites] = useState<MealModel[]>([]);
+  const [favorites, setFavorites] = useState<string[]>([]); // FIXED: Change to string[]
   const [loading, setLoading] = useState(true);
   const [initialized, setInitialized] = useState(false);
 
@@ -22,18 +23,21 @@ export const useFavorites = () => {
       const storedFavorites = await StorageService.getItem<string[]>(FAVORITES_KEY);
       
       if (storedFavorites && Array.isArray(storedFavorites)) {
-        const favoriteMeals = storedFavorites
-          .map(id => MealService.getMealById(id))
-          .filter((meal): meal is MealModel => meal !== undefined);
-        setFavorites(favoriteMeals);
+        setFavorites(storedFavorites);
       } else {
-        // Fallback to service
-        const serviceFavorites = MealService.getFavoriteMeals();
-        setFavorites(serviceFavorites || []);
+        // Fallback to service - get only favorite IDs
+        const allMeals = await mealService.getMeals();
+        const favoriteIds = allMeals
+          .filter(meal => meal.isFavorite)
+          .map(meal => meal.id);
+        setFavorites(favoriteIds);
+        
+        // Save to storage for next time
+        await StorageService.setItem(FAVORITES_KEY, favoriteIds);
       }
     } catch (error) {
       console.error('Error loading favorites:', error);
-      setFavorites([]);
+      setFavorites([]); // Ensure it's always an array
     } finally {
       setLoading(false);
       setInitialized(true);
@@ -42,47 +46,44 @@ export const useFavorites = () => {
 
   const toggleFavorite = useCallback(async (mealId: string) => {
     try {
-      const isNowFavorite = MealService.toggleFavorite(mealId);
+      // Check if already favorited
+      const isCurrentlyFavorite = favorites.includes(mealId);
+      const newFavorites = isCurrentlyFavorite 
+        ? favorites.filter(id => id !== mealId)
+        : [...favorites, mealId];
       
-      if (isNowFavorite) {
-        // Add to favorites
-        const meal = MealService.getMealById(mealId);
-        if (meal) {
-          setFavorites(prev => [...(prev || []), meal]);
-        }
-      } else {
-        // Remove from favorites
-        setFavorites(prev => (prev || []).filter(fav => fav.id !== mealId));
-      }
-
+      // Optimistically update UI
+      setFavorites(newFavorites);
+      
       // Update storage
-      const favoriteIds = MealService.getAllMeals()
-        .filter(meal => meal.isFavorite)
-        .map(meal => meal.id);
+      await StorageService.setItem(FAVORITES_KEY, newFavorites);
       
-      await StorageService.setItem(FAVORITES_KEY, favoriteIds);
+      // Try to update backend if available
+      try {
+        await mealService.toggleFavorite(mealId);
+      } catch (apiError) {
+        console.log('Backend favorite update failed, using local storage only:', apiError);
+      }
+      
+      return { success: true, isFavorited: !isCurrentlyFavorite };
     } catch (error) {
       console.error('Error toggling favorite:', error);
+      // Revert on error
+      setFavorites(prev => prev || []);
+      return { success: false };
     }
-  }, []);
+  }, [favorites]);
 
   const isFavorite = useCallback((mealId: string): boolean => {
-    // Add safety checks to prevent the "some is not a function" error
-    if (!favorites || !Array.isArray(favorites) || !initialized) {
+    // Add safety checks
+    if (!favorites || !Array.isArray(favorites)) {
       return false;
     }
-    return favorites.some(fav => fav && fav.id === mealId);
-  }, [favorites, initialized]);
+    return favorites.includes(mealId);
+  }, [favorites]);
 
   const clearFavorites = useCallback(async () => {
     try {
-      // Remove favorites from all meals
-      MealService.getAllMeals().forEach(meal => {
-        if (meal.isFavorite) {
-          meal.toggleFavorite();
-        }
-      });
-      
       setFavorites([]);
       await StorageService.removeItem(FAVORITES_KEY);
     } catch (error) {
@@ -90,13 +91,14 @@ export const useFavorites = () => {
     }
   }, []);
 
+  // FIXED: Ensure we always return an array, never undefined
   return {
-    favorites: favorites || [], // Ensure we always return an array
+    favorites: favorites || [],
     loading,
     toggleFavorite,
     isFavorite,
     clearFavorites,
     refreshFavorites: loadFavorites,
-    initialized, // Export initialized state if needed
+    initialized,
   };
 };

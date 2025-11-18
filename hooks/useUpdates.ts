@@ -1,4 +1,3 @@
-// hooks/useUpdates.ts - FINAL VERSION
 import { useEffect, useState } from 'react';
 import * as Updates from 'expo-updates';
 import { Alert } from 'react-native';
